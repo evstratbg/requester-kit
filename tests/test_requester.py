@@ -2,7 +2,6 @@ import io
 import time
 from collections.abc import Awaitable, Callable
 from http import HTTPMethod
-from typing import Any
 
 import httpx
 import pytest
@@ -270,6 +269,7 @@ async def test__base_async_requester__prometheus_metrics__label_from_subclass_me
 
 
 def test__get_prometheus_histogram__caches_and_adds_label():
+    pytest.importorskip("prometheus_client")
     client_module._PROM_HISTOGRAMS.clear()
     histogram = client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_test")
     cached = client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_test")
@@ -282,21 +282,14 @@ def test__get_prometheus_histogram__caches_and_adds_label():
 
 
 def test__get_prometheus_histogram__missing_dependency_raises(mocker: MockerFixture):
-    real_import = __import__
-
-    def fake_import(name: str, *args: Any, **kwargs: Any):
-        if name == "prometheus_client":
-            raise ImportError("no prometheus")
-        return real_import(name, *args, **kwargs)
-
-    assert fake_import("json")
-    mocker.patch("builtins.__import__", side_effect=fake_import)
+    mocker.patch("requester_kit.client.import_module", side_effect=ImportError("no prometheus"))
 
     with pytest.raises(RuntimeError, match="prometheus_client is required"):
         client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_missing")
 
 
 def test__get_prometheus_counter__caches_and_adds_label():
+    pytest.importorskip("prometheus_client")
     client_module._PROM_COUNTERS.clear()
     counter = client_module._get_prometheus_counter("requester_kit_request_errors_total_test")
     cached = client_module._get_prometheus_counter("requester_kit_request_errors_total_test")
@@ -318,15 +311,7 @@ def test__get_prometheus_size_histogram__reuses_base_histogram(mocker: MockerFix
 
 
 def test__get_prometheus_counter__missing_dependency_raises(mocker: MockerFixture):
-    real_import = __import__
-
-    def fake_import(name: str, *args: Any, **kwargs: Any):
-        if name == "prometheus_client":
-            raise ImportError("no prometheus")
-        return real_import(name, *args, **kwargs)
-
-    assert fake_import("json")
-    mocker.patch("builtins.__import__", side_effect=fake_import)
+    mocker.patch("requester_kit.client.import_module", side_effect=ImportError("no prometheus"))
 
     with pytest.raises(RuntimeError, match="prometheus_client is required"):
         client_module._get_prometheus_counter("requester_kit_request_errors_total_missing")

@@ -4,7 +4,7 @@ import time
 from http import HTTPMethod, HTTPStatus
 from importlib import import_module
 from json import JSONDecodeError
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from httpx import AsyncClient, AsyncHTTPTransport, HTTPError, Request, Response
 from pydantic import ValidationError
@@ -292,13 +292,13 @@ class BaseRequesterKit:
             response_size_metric = _get_prometheus_size_histogram(_PROM_RESPONSE_SIZE_NAME)
             metric_label = self._resolve_metric_label(request)
             attempt_label = str(attempt_number)
-            if request_size_metric is not None:
-                request_size_metric.labels(
-                    method=metric_label,
-                    status_code="request",
-                    status_class="request",
-                    attempt=attempt_label,
-                ).observe(len(request.content or b""))
+            request_size_metric = cast("Histogram", request_size_metric)
+            request_size_metric.labels(
+                method=metric_label,
+                status_code="request",
+                status_class="request",
+                attempt=attempt_label,
+            ).observe(len(request.content or b""))
 
         try:
             response = await self._client.send(
@@ -331,13 +331,13 @@ class BaseRequesterKit:
                 status_class=f"{response.status_code // 100}xx",
                 attempt=attempt_label,
             ).observe(duration)
-            if response_size_metric is not None:
-                response_size_metric.labels(
-                    method=metric_label,
-                    status_code=str(response.status_code),
-                    status_class=f"{response.status_code // 100}xx",
-                    attempt=attempt_label,
-                ).observe(len(response.content or b""))
+            response_size_metric = cast("Histogram", response_size_metric)
+            response_size_metric.labels(
+                method=metric_label,
+                status_code=str(response.status_code),
+                status_class=f"{response.status_code // 100}xx",
+                attempt=attempt_label,
+            ).observe(len(response.content or b""))
 
         self._log_response(response, duration, str(request.url))
 

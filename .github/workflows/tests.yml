@@ -15,7 +15,7 @@ jobs:
       - name: Install deps
         run: |
           uv venv
-          uv pip install -e ".[testing]"
+          uv pip install -e ".[testing,metrics]"
       - name: Run lint
         run: make lint
 
@@ -31,6 +31,6 @@ jobs:
       - name: Install deps
         run: |
           uv venv
-          uv pip install -e ".[testing]"
+          uv pip install -e ".[testing,metrics]"
       - name: Run tests
         run: uv run pytest
