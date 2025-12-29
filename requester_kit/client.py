@@ -292,7 +292,6 @@ class BaseRequesterKit:
             response_size_metric = _get_prometheus_size_histogram(_PROM_RESPONSE_SIZE_NAME)
             metric_label = self._resolve_metric_label(request)
             attempt_label = str(attempt_number)
-            request_size_metric = cast("Histogram", request_size_metric)
             request_size_metric.labels(
                 method=metric_label,
                 status_code="request",
