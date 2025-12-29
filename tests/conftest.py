@@ -8,7 +8,7 @@ import pytest
 from pytest_fixture_classes import fixture_class
 from pytest_mock import MockerFixture
 
-from requester_kit.client import RequesterKit
+from requester_kit.client import BaseRequesterKit
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -41,6 +41,6 @@ class MockHTTPX:
 
 
 @pytest.fixture
-def async_requester(mock_httpx: MockHTTPX) -> RequesterKit:
+def async_requester(mock_httpx: MockHTTPX) -> BaseRequesterKit:
     mock_httpx(200)
-    return RequesterKit()
+    return BaseRequesterKit()

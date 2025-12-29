@@ -1,7 +1,8 @@
-import logging
 import inspect
+import logging
 import time
 from http import HTTPMethod, HTTPStatus
+from importlib import import_module
 from json import JSONDecodeError
 from typing import TYPE_CHECKING
 
@@ -13,25 +14,48 @@ from requester_kit import types
 from requester_kit.types import LoggerSettings, RequesterKitResponse, RetryerSettings, T_co
 
 if TYPE_CHECKING:
-    from prometheus_client import Histogram
+    from prometheus_client import Counter, Histogram
 
 _PROM_HISTOGRAMS: dict[str, "Histogram"] = {}
+_PROM_COUNTERS: dict[str, "Counter"] = {}
 _PROM_REQUEST_DURATION_NAME = "requester_kit_request_duration_seconds"
+_PROM_REQUEST_ERRORS_NAME = "requester_kit_request_errors_total"
+_PROM_REQUEST_SIZE_NAME = "requester_kit_request_payload_bytes"
+_PROM_RESPONSE_SIZE_NAME = "requester_kit_response_bytes"
 
 
 def _get_prometheus_histogram(name: str) -> "Histogram":
     try:
-        from prometheus_client import Histogram
+        histogram = import_module("prometheus_client").Histogram
     except ImportError as exc:
         raise RuntimeError("prometheus_client is required when enable_prometheus_metrics=True") from exc
 
     if name not in _PROM_HISTOGRAMS:
-        _PROM_HISTOGRAMS[name] = Histogram(
+        _PROM_HISTOGRAMS[name] = histogram(
             name,
             "HTTP request duration in seconds",
-            labelnames=("method",),
+            labelnames=("method", "status_code", "status_class", "attempt"),
         )
     return _PROM_HISTOGRAMS[name]
+
+
+def _get_prometheus_counter(name: str) -> "Counter":
+    try:
+        counter = import_module("prometheus_client").Counter
+    except ImportError as exc:
+        raise RuntimeError("prometheus_client is required when enable_prometheus_metrics=True") from exc
+
+    if name not in _PROM_COUNTERS:
+        _PROM_COUNTERS[name] = counter(
+            name,
+            "Total number of HTTP request errors",
+            labelnames=("method", "status_code", "error_type", "attempt"),
+        )
+    return _PROM_COUNTERS[name]
+
+
+def _get_prometheus_size_histogram(name: str) -> "Histogram":
+    return _get_prometheus_histogram(name)
 
 
 class RequesterKitRequestError(Exception):
@@ -40,7 +64,7 @@ class RequesterKitRequestError(Exception):
         self.status_code = status_code
 
 
-class RequesterKit:
+class BaseRequesterKit:
     def __init__(
         self,
         base_url: str = "",
@@ -51,6 +75,7 @@ class RequesterKit:
         timeout: float | None = None,
         retryer_settings: RetryerSettings | None = None,
         logger_settings: LoggerSettings | None = None,
+        *,
         enable_prometheus_metrics: bool = False,
     ) -> None:
         self._retryer_settings = retryer_settings or RetryerSettings()
@@ -223,7 +248,7 @@ class RequesterKit:
         try:
             async for attempt in self._retryer:
                 with attempt:
-                    response = await self._send_request(request)
+                    response = await self._send_request(request, attempt.retry_state.attempt_number)
         except RequesterKitRequestError as exc:
             return RequesterKitResponse(
                 status_code=exc.status_code,
@@ -252,14 +277,28 @@ class RequesterKit:
                 raw_data=response.content,
             )
 
-    async def _send_request(self, request: Request) -> Response:
+    async def _send_request(self, request: Request, attempt_number: int = 1) -> Response:
         self._log_request(request)
 
         start_time = time.perf_counter()
         metric = None
+        error_counter = None
+        request_size_metric = None
+        response_size_metric = None
         if self._enable_prometheus_metrics:
             metric = _get_prometheus_histogram(_PROM_REQUEST_DURATION_NAME)
+            error_counter = _get_prometheus_counter(_PROM_REQUEST_ERRORS_NAME)
+            request_size_metric = _get_prometheus_size_histogram(_PROM_REQUEST_SIZE_NAME)
+            response_size_metric = _get_prometheus_size_histogram(_PROM_RESPONSE_SIZE_NAME)
             metric_label = self._resolve_metric_label(request)
+            attempt_label = str(attempt_number)
+            if request_size_metric is not None:
+                request_size_metric.labels(
+                    method=metric_label,
+                    status_code="request",
+                    status_class="request",
+                    attempt=attempt_label,
+                ).observe(len(request.content or b""))
 
         try:
             response = await self._client.send(
@@ -269,16 +308,47 @@ class RequesterKit:
         except HTTPError as exc:
             duration = time.perf_counter() - start_time
             if metric is not None:
-                metric.labels(method=metric_label).observe(duration)
+                metric.labels(
+                    method=metric_label,
+                    status_code="exception",
+                    status_class="error",
+                    attempt=attempt_label,
+                ).observe(duration)
+            if error_counter is not None:
+                error_counter.labels(
+                    method=metric_label,
+                    status_code="exception",
+                    error_type="http_error",
+                    attempt=attempt_label,
+                ).inc()
             raise RequesterKitRequestError(str(exc)) from exc
 
         duration = time.perf_counter() - start_time
         if metric is not None:
-            metric.labels(method=metric_label).observe(duration)
+            metric.labels(
+                method=metric_label,
+                status_code=str(response.status_code),
+                status_class=f"{response.status_code // 100}xx",
+                attempt=attempt_label,
+            ).observe(duration)
+            if response_size_metric is not None:
+                response_size_metric.labels(
+                    method=metric_label,
+                    status_code=str(response.status_code),
+                    status_class=f"{response.status_code // 100}xx",
+                    attempt=attempt_label,
+                ).observe(len(response.content or b""))
 
         self._log_response(response, duration, str(request.url))
 
         if response.status_code >= HTTPStatus.BAD_REQUEST:
+            if error_counter is not None:
+                error_counter.labels(
+                    method=metric_label,
+                    status_code=str(response.status_code),
+                    error_type="http_status",
+                    attempt=attempt_label,
+                ).inc()
             raise RequesterKitRequestError("Bad response", response.status_code)
 
         return response
@@ -291,8 +361,14 @@ class RequesterKit:
             frame = frame.f_back
             while frame:
                 frame_self = frame.f_locals.get("self")
-                if frame_self is not None and type(frame_self) is not RequesterKit:
-                    return f"{type(frame_self).__name__}.{frame.f_code.co_name}"
+                if isinstance(frame_self, BaseRequesterKit):
+                    method_name = frame.f_code.co_name
+                    base_method = getattr(BaseRequesterKit, method_name, None)
+                    base_code = getattr(base_method, "__code__", None) if base_method else None
+                    if base_code is frame.f_code:
+                        frame = frame.f_back
+                        continue
+                    return f"{type(frame_self).__name__}.{method_name}"
                 frame = frame.f_back
         finally:
             del frame

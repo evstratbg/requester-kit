@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import IO, Annotated, Any, Generic, Literal, TypeVar
+from typing import IO, Annotated, Any, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -57,7 +57,7 @@ PositiveInt = Annotated[int, Field(strict=True, ge=0)]
 PositiveFloat = Annotated[float, Field(strict=True, ge=0)]
 
 
-class RequesterKitResponse(BaseModel, Generic[T_co]):
+class RequesterKitResponse[T_co](BaseModel):
     status_code: int | None = None
     is_ok: bool
     parsed_data: T_co | None = None

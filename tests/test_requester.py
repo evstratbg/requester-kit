@@ -2,13 +2,15 @@ import io
 import time
 from collections.abc import Awaitable, Callable
 from http import HTTPMethod
+from typing import Any
 
 import httpx
 import pytest
 from pydantic import BaseModel, ValidationError
 from pytest_mock import MockerFixture
 
-from requester_kit.client import RequesterKit
+from requester_kit import client as client_module
+from requester_kit.client import BaseRequesterKit
 from requester_kit.types import RetryerSettings
 from tests.conftest import MockHTTPX
 
@@ -20,19 +22,19 @@ class HelloWorldModel(BaseModel):
 method_parametrize = pytest.mark.parametrize(
     ("method", "method_name"),
     [
-        (RequesterKit.get, HTTPMethod.GET),
-        (RequesterKit.post, HTTPMethod.POST),
-        (RequesterKit.put, HTTPMethod.PUT),
-        (RequesterKit.delete, HTTPMethod.DELETE),
-        (RequesterKit.patch, HTTPMethod.PATCH),
-        (RequesterKit.head, HTTPMethod.HEAD),
+        (BaseRequesterKit.get, HTTPMethod.GET),
+        (BaseRequesterKit.post, HTTPMethod.POST),
+        (BaseRequesterKit.put, HTTPMethod.PUT),
+        (BaseRequesterKit.delete, HTTPMethod.DELETE),
+        (BaseRequesterKit.patch, HTTPMethod.PATCH),
+        (BaseRequesterKit.head, HTTPMethod.HEAD),
     ],
 )
 
 
 @method_parametrize
 async def test__base_async_requester__403_and_no_log_error_for_4xx__should_print_no_error_log(
-    async_requester: RequesterKit,
+    async_requester: BaseRequesterKit,
     mock_httpx: MockHTTPX,
     method: Callable[..., Awaitable[httpx.Response]],
     method_name: HTTPMethod,
@@ -44,13 +46,13 @@ async def test__base_async_requester__403_and_no_log_error_for_4xx__should_print
     assert response.status_code == 403
 
     assert caplog.record_tuples == [
-        ("RequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
     ]
 
 
 @method_parametrize
 async def test__base_async_requester__500_and_no_log_error_for_5xx__should_print_no_error_log(
-    async_requester: RequesterKit,
+    async_requester: BaseRequesterKit,
     mock_httpx: MockHTTPX,
     method: Callable[..., Awaitable[httpx.Response]],
     method_name: HTTPMethod,
@@ -62,13 +64,13 @@ async def test__base_async_requester__500_and_no_log_error_for_5xx__should_print
     assert response.status_code == 500
 
     assert caplog.record_tuples == [
-        ("RequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
     ]
 
 
 @method_parametrize
 async def test__base_async_requester__403_and_500__should_print_error_log(
-    async_requester: RequesterKit,
+    async_requester: BaseRequesterKit,
     mock_httpx: MockHTTPX,
     method: Callable[..., Awaitable[httpx.Response]],
     method_name: HTTPMethod,
@@ -83,15 +85,15 @@ async def test__base_async_requester__403_and_500__should_print_error_log(
     assert response.status_code == 403
 
     assert caplog.record_tuples == [
-        ("RequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
         (
-            "RequesterKit",
+            "BaseRequesterKit",
             30,
             "Response from (http://localhost/hewwo) with status_code 500",
         ),
-        ("RequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
         (
-            "RequesterKit",
+            "BaseRequesterKit",
             30,
             "Response from (http://localhost/hewwo) with status_code 403",
         ),
@@ -100,8 +102,8 @@ async def test__base_async_requester__403_and_500__should_print_error_log(
 
 @method_parametrize
 async def test__base_async_requester__all_http_methods(
-    async_requester: RequesterKit,
-    method: Callable[[RequesterKit, str], Awaitable[httpx.Response]],
+    async_requester: BaseRequesterKit,
+    method: Callable[[BaseRequesterKit, str], Awaitable[httpx.Response]],
     method_name: HTTPMethod,
 ):
     response = await async_requester._send_request(
@@ -114,7 +116,7 @@ async def test__base_async_requester__all_http_methods(
     assert response.request.method == method.__name__.upper() == method_name
 
 
-async def test__base_async_requester__send_params(async_requester: RequesterKit):
+async def test__base_async_requester__send_params(async_requester: BaseRequesterKit):
     response = await async_requester._send_request(
         httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo", params={"hello": "world"})
     )
@@ -122,7 +124,7 @@ async def test__base_async_requester__send_params(async_requester: RequesterKit)
     assert response.request.url == "http://localhost/hewwo?hello=world"
 
 
-async def test__base_async_requester__send_files(async_requester: RequesterKit):
+async def test__base_async_requester__send_files(async_requester: BaseRequesterKit):
     response = await async_requester._send_request(
         httpx.Request(
             method=HTTPMethod.POST,
@@ -146,7 +148,7 @@ async def test__base_async_requester__send_files(async_requester: RequesterKit):
     ],
 )
 async def test__base_async_requester__send_files_as_tuple(
-    async_requester: RequesterKit,
+    async_requester: BaseRequesterKit,
     method: HTTPMethod,
 ):
     response = await async_requester._send_request(
@@ -164,7 +166,7 @@ async def test__base_async_requester__send_files_as_tuple(
 
 
 async def test__base_async_requester__send_data_as_dict(
-    async_requester: RequesterKit,
+    async_requester: BaseRequesterKit,
 ):
     response = await async_requester._send_request(
         httpx.Request(
@@ -178,7 +180,7 @@ async def test__base_async_requester__send_data_as_dict(
 
 
 @pytest.mark.parametrize("data", [b"hewwo", "hewwo"])
-async def test__base_async_requester__send_data_as_str(async_requester: RequesterKit, data: str | bytes):
+async def test__base_async_requester__send_data_as_str(async_requester: BaseRequesterKit, data: str | bytes):
     response = await async_requester._send_request(
         httpx.Request(
             method=HTTPMethod.POST,
@@ -192,7 +194,7 @@ async def test__base_async_requester__send_data_as_str(async_requester: Requeste
 
 async def test__base_async_requester__send_login_password_info(mock_httpx: MockHTTPX, mocker: MockerFixture):
     mocked_send = mock_httpx(200)
-    requester = RequesterKit(auth=("MyLogin", "MyPassword"))
+    requester = BaseRequesterKit(auth=("MyLogin", "MyPassword"))
     response = await requester._send_request(httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo"))
     mocked_send.assert_awaited_once_with(response.request, auth=requester._client.auth)
 
@@ -206,18 +208,36 @@ async def test__base_async_requester__prometheus_metrics__observes_duration(
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
     get_metric = mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    counter = mocker.Mock()
+    counter.labels.return_value = mocker.Mock()
+    get_counter = mocker.patch("requester_kit.client._get_prometheus_counter", return_value=counter)
+    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
     mocker.patch(
-        "requester_kit.client.RequesterKit._resolve_metric_label",
+        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
         return_value="UserInfo.get_user_info",
     )
 
-    requester = RequesterKit(enable_prometheus_metrics=True)
+    requester = BaseRequesterKit(enable_prometheus_metrics=True)
     await requester.get("http://localhost/hewwo")
 
     get_metric.assert_called_once_with("requester_kit_request_duration_seconds")
-    metric.labels.assert_called_once_with(method="UserInfo.get_user_info")
-    metric_child.observe.assert_called_once_with(1.0)
+    get_counter.assert_called_once_with("requester_kit_request_errors_total")
+    metric.labels.assert_any_call(
+        method="UserInfo.get_user_info",
+        status_code="200",
+        status_class="2xx",
+        attempt="1",
+    )
+    metric.labels.assert_any_call(
+        method="UserInfo.get_user_info",
+        status_code="request",
+        status_class="request",
+        attempt="1",
+    )
+    metric_child.observe.assert_any_call(1.0)
+    counter.labels.assert_not_called()
+    metric_child.observe.assert_any_call(2)
 
 
 async def test__base_async_requester__prometheus_metrics__label_from_subclass_method(
@@ -229,44 +249,87 @@ async def test__base_async_requester__prometheus_metrics__label_from_subclass_me
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
     mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
 
-    class UserInfo(RequesterKit):
+    class UserInfo(BaseRequesterKit):
         async def get_user_info(self):
             return await self.get("http://localhost/hewwo")
 
     requester = UserInfo(enable_prometheus_metrics=True)
     await requester.get_user_info()
 
-    metric.labels.assert_called_once_with(method="UserInfo.get_user_info")
-    metric_child.observe.assert_called_once_with(1.0)
+    metric.labels.assert_any_call(
+        method="UserInfo.get_user_info",
+        status_code="200",
+        status_class="2xx",
+        attempt="1",
+    )
+    metric_child.observe.assert_any_call(1.0)
 
 
 def test__get_prometheus_histogram__caches_and_adds_label():
-    from requester_kit import client as client_module
-
     client_module._PROM_HISTOGRAMS.clear()
     histogram = client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_test")
     cached = client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_test")
 
     assert histogram is cached
     assert "method" in histogram._labelnames
+    assert "status_code" in histogram._labelnames
+    assert "status_class" in histogram._labelnames
+    assert "attempt" in histogram._labelnames
 
 
 def test__get_prometheus_histogram__missing_dependency_raises(mocker: MockerFixture):
-    from requester_kit import client as client_module
-
     real_import = __import__
 
-    def fake_import(name, *args, **kwargs):
+    def fake_import(name: str, *args: Any, **kwargs: Any):
         if name == "prometheus_client":
             raise ImportError("no prometheus")
         return real_import(name, *args, **kwargs)
 
+    assert fake_import("json")
     mocker.patch("builtins.__import__", side_effect=fake_import)
 
     with pytest.raises(RuntimeError, match="prometheus_client is required"):
         client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_missing")
+
+
+def test__get_prometheus_counter__caches_and_adds_label():
+    client_module._PROM_COUNTERS.clear()
+    counter = client_module._get_prometheus_counter("requester_kit_request_errors_total_test")
+    cached = client_module._get_prometheus_counter("requester_kit_request_errors_total_test")
+
+    assert counter is cached
+    assert "method" in counter._labelnames
+    assert "status_code" in counter._labelnames
+    assert "error_type" in counter._labelnames
+    assert "attempt" in counter._labelnames
+
+
+def test__get_prometheus_size_histogram__reuses_base_histogram(mocker: MockerFixture):
+    base = mocker.Mock()
+    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=base)
+
+    result = client_module._get_prometheus_size_histogram("requester_kit_request_payload_bytes")
+
+    assert result is base
+
+
+def test__get_prometheus_counter__missing_dependency_raises(mocker: MockerFixture):
+    real_import = __import__
+
+    def fake_import(name: str, *args: Any, **kwargs: Any):
+        if name == "prometheus_client":
+            raise ImportError("no prometheus")
+        return real_import(name, *args, **kwargs)
+
+    assert fake_import("json")
+    mocker.patch("builtins.__import__", side_effect=fake_import)
+
+    with pytest.raises(RuntimeError, match="prometheus_client is required"):
+        client_module._get_prometheus_counter("requester_kit_request_errors_total_missing")
 
 
 async def test__base_async_requester__prometheus_metrics__label_fallback_when_no_frame(
@@ -278,14 +341,21 @@ async def test__base_async_requester__prometheus_metrics__label_fallback_when_no
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
     mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
     mocker.patch("requester_kit.client.inspect.currentframe", return_value=None)
 
-    requester = RequesterKit(enable_prometheus_metrics=True)
+    requester = BaseRequesterKit(enable_prometheus_metrics=True)
     await requester.get("http://localhost/hewwo")
 
-    metric.labels.assert_called_once_with(method="RequesterKit.get")
-    metric_child.observe.assert_called_once_with(1.0)
+    metric.labels.assert_any_call(
+        method="BaseRequesterKit.get",
+        status_code="200",
+        status_class="2xx",
+        attempt="1",
+    )
+    metric_child.observe.assert_any_call(1.0)
 
 
 async def test__base_async_requester__prometheus_metrics__label_fallback_when_no_external_method(
@@ -297,17 +367,140 @@ async def test__base_async_requester__prometheus_metrics__label_fallback_when_no
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
     mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
 
-    requester = RequesterKit(enable_prometheus_metrics=True)
+    requester = BaseRequesterKit(enable_prometheus_metrics=True)
     await requester.get("http://localhost/hewwo")
 
-    metric.labels.assert_called_once_with(method="RequesterKit.get")
-    metric_child.observe.assert_called_once_with(1.0)
+    metric.labels.assert_any_call(
+        method="BaseRequesterKit.get",
+        status_code="200",
+        status_class="2xx",
+        attempt="1",
+    )
+    metric_child.observe.assert_any_call(1.0)
+
+
+async def test__base_async_requester__prometheus_metrics__observes_on_http_error(
+    mock_httpx: MockHTTPX,
+    mocker: MockerFixture,
+):
+    mock_httpx(200)
+    metric = mocker.Mock()
+    metric_child = mocker.Mock()
+    metric.labels.return_value = metric_child
+    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    counter = mocker.Mock()
+    counter_child = mocker.Mock()
+    counter.labels.return_value = counter_child
+    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=counter)
+    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
+    mocker.patch(
+        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
+        return_value="BaseRequesterKit.get",
+    )
+    mocker.patch.object(httpx.AsyncClient, "send", side_effect=httpx.HTTPError("Such error"))
+
+    requester = BaseRequesterKit(enable_prometheus_metrics=True)
+    response = await requester.get("http://localhost/hewwo")
+
+    assert response.status_code is None
+    metric.labels.assert_any_call(
+        method="BaseRequesterKit.get",
+        status_code="exception",
+        status_class="error",
+        attempt="1",
+    )
+    metric_child.observe.assert_any_call(1.0)
+    counter.labels.assert_called_once_with(
+        method="BaseRequesterKit.get",
+        status_code="exception",
+        error_type="http_error",
+        attempt="1",
+    )
+    counter_child.inc.assert_called_once_with()
+
+
+async def test__base_async_requester__prometheus_metrics__response_size_observed(
+    mock_httpx: MockHTTPX,
+    mocker: MockerFixture,
+):
+    mock_httpx(200, content=b"{}")
+    metric = mocker.Mock()
+    metric_child = mocker.Mock()
+    metric.labels.return_value = metric_child
+    size_metric = mocker.Mock()
+    size_metric_child = mocker.Mock()
+    size_metric.labels.return_value = size_metric_child
+    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=size_metric)
+    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
+    mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
+    mocker.patch(
+        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
+        return_value="BaseRequesterKit.get",
+    )
+
+    requester = BaseRequesterKit(enable_prometheus_metrics=True)
+    await requester.get("http://localhost/hewwo")
+
+    size_metric_child.observe.assert_any_call(2)
+
+
+async def test__base_async_requester__prometheus_metrics__attempt_label_on_retry(mocker: MockerFixture):
+    metric = mocker.Mock()
+    metric_child = mocker.Mock()
+    metric.labels.return_value = metric_child
+    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    counter = mocker.Mock()
+    counter_child = mocker.Mock()
+    counter.labels.return_value = counter_child
+    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=counter)
+    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0, 2.0, 3.0])
+    mocker.patch(
+        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
+        return_value="BaseRequesterKit.get",
+    )
+
+    error_response = httpx.Response(
+        status_code=500,
+        request=httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo"),
+        content=b"{}",
+        headers={"content-type": "application/json"},
+    )
+    ok_response = httpx.Response(
+        status_code=200,
+        request=httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo"),
+        content=b"{}",
+        headers={"content-type": "application/json"},
+    )
+    mocker.patch.object(httpx.AsyncClient, "send", side_effect=[error_response, ok_response])
+
+    requester = BaseRequesterKit(
+        retryer_settings=RetryerSettings(retries=1, delay=0, increment=0),
+        enable_prometheus_metrics=True,
+    )
+    response = await requester.get("http://localhost/hewwo")
+
+    assert response.status_code == 200
+    attempt_labels = [call.kwargs["attempt"] for call in metric.labels.call_args_list]
+    assert "1" in attempt_labels
+    assert "2" in attempt_labels
+    counter.labels.assert_called_once_with(
+        method="BaseRequesterKit.get",
+        status_code="500",
+        error_type="http_status",
+        attempt="1",
+    )
+    counter_child.inc.assert_called_once_with()
 
 
 async def test__base_async_requester__exception_during_send__turned_into_500(
-    async_requester: RequesterKit,
+    async_requester: BaseRequesterKit,
     mocker: MockerFixture,
 ):
     mocker.patch.object(httpx.AsyncClient, "send", side_effect=httpx.HTTPError("Such error"))
@@ -316,11 +509,11 @@ async def test__base_async_requester__exception_during_send__turned_into_500(
 
 
 async def test__base_async_requester__exception_during_build_request__raised(
-    async_requester: RequesterKit,
+    async_requester: BaseRequesterKit,
 ):
     with pytest.raises(
         TypeError,
-        match="Invalid type for url.  Expected str or httpx.URL, got <class 'bytes'>: b'not an url'",
+        match=r"Invalid type for url\.  Expected str or httpx\.URL, got <class 'bytes'>: b'not an url'",
     ):
         await async_requester.get(b"not an url")  # pyright: ignore[reportGeneralTypeIssues]
 
@@ -336,7 +529,7 @@ async def test__base_async_requester_no_retries__on_4xx_response_code__error(
         headers={"content-type": "application/json"},
     )
     mocked_send = mocker.patch.object(httpx.AsyncClient, "send", side_effect=[side_effect] * 6)
-    response = await RequesterKit(
+    response = await BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=5,
             delay=0,
@@ -363,7 +556,7 @@ async def test__base_async_requester_retry__on_4xx_response_code_when_it_is_expl
         "send",
         side_effect=side_effect,
     )
-    response = await RequesterKit(
+    response = await BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=5,
             delay=0,
@@ -390,7 +583,7 @@ async def test__base_async_requester_no_retry__on_2xx_response_code_even_when_it
         "send",
         side_effect=[success_response],
     )
-    async_requester = RequesterKit(
+    async_requester = BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=5,
             delay=0,
@@ -406,7 +599,7 @@ async def test__base_async_requester_no_retry__on_2xx_response_code_even_when_it
 
 async def test_base_async_requester_wrong_status_codes():
     with pytest.raises(ValidationError) as exc_info:
-        RequesterKit(
+        BaseRequesterKit(
             retryer_settings=RetryerSettings(
                 retries=5,
                 delay=0,
@@ -439,7 +632,7 @@ async def test__base_async_requester_retry__on_4xx_response_code_when_it_is_expl
         "send",
         side_effect=[error_response, error_response, successful_response],
     )
-    response = await RequesterKit(
+    response = await BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=10,
             delay=0,
@@ -471,7 +664,7 @@ async def test__base_async_requester_retries__two_exceptions_one_ok__success(moc
             ),
         ],
     )
-    response = await RequesterKit(
+    response = await BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=2,
             delay=0,
@@ -487,7 +680,7 @@ async def test__base_async_requester_retries__two_exceptions_one_ok__success(moc
 async def test__base_async_requester_backoff_factor(mock_httpx: MockHTTPX):
     mock_httpx(500, b'{"Such":"error"}')
     start = time.time()
-    response = await RequesterKit(
+    response = await BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=3,
             delay=0.2,
@@ -501,7 +694,7 @@ async def test__base_async_requester_backoff_factor(mock_httpx: MockHTTPX):
 
 async def test_no_data_validation(mock_httpx: MockHTTPX):
     mock_httpx(200, b'{"bla":"blabla"}')
-    response = await RequesterKit(
+    response = await BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=3,
             delay=0.2,
@@ -515,7 +708,7 @@ async def test_no_data_validation(mock_httpx: MockHTTPX):
 
 async def test_invalid_data_response(mock_httpx: MockHTTPX):
     mock_httpx(200, b'{"bla":"blabla"}')
-    response = await RequesterKit(
+    response = await BaseRequesterKit(
         retryer_settings=RetryerSettings(
             retries=3,
             delay=0.2,
@@ -528,4 +721,4 @@ async def test_invalid_data_response(mock_httpx: MockHTTPX):
 
 
 async def test_async_requester_not_retry_unexpected_error():
-    assert RequesterKit()._need_to_retry(ValueError) is False
+    assert BaseRequesterKit()._need_to_retry(ValueError) is False
