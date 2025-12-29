@@ -14,6 +14,7 @@ jobs:
           enable-cache: true
       - name: Install deps
         run: |
+          uv venv
           uv pip install -e ".[testing]"
       - name: Run lint
         run: make lint
@@ -29,6 +30,7 @@ jobs:
           enable-cache: true
       - name: Install deps
         run: |
+          uv venv
           uv pip install -e ".[testing]"
       - name: Run tests
         run: uv run pytest
