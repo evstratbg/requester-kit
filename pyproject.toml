@@ -1,8 +1,9 @@
 [project]
 name = "requester-kit"
 version = "0.1.0"
-license = {text = ""}
+license = {text = "MIT"}
 description = "Async HTTP connector toolkit with retries, testing helpers, and Prometheus metrics."
+readme = "README.md"
 authors = [
     { name = "Bogdan", email = "evstrat.bg@gmail.com" }
 ]
@@ -13,6 +14,11 @@ dependencies = [
     "tenacity>=9.0.0",
 ]
 requires-python = ">= 3.12"
+
+[project.urls]
+Homepage = "https://github.com/evstratbg/requester-kit"
+Repository = "https://github.com/evstratbg/requester-kit"
+Issues = "https://github.com/evstratbg/requester-kit/issues"
 
 [project.optional-dependencies]
 testing = [
