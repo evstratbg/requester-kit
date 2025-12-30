@@ -1,6 +1,6 @@
 [project]
 name = "requester-kit"
-version = "0.2.0"
+version = "0.3.0"
 license = {text = "MIT"}
 description = "Async HTTP connector toolkit with retries, testing helpers, and Prometheus metrics."
 readme = "README.md"
