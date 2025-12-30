@@ -12,7 +12,7 @@ from httpx import AsyncClient, AsyncHTTPTransport, HTTPError, Request, Response
 from pydantic import ValidationError
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_incrementing
 
-from requester_kit.types import LoggerSettings, RequesterKitResponse, RetryerSettings, T_co
+from requester_kit.types import LoggerSettings, RequesterKitResponse, RetrySettings, T_co
 
 if TYPE_CHECKING:
     from prometheus_client import Counter, Histogram
@@ -76,12 +76,12 @@ class BaseRequesterKit:
         headers: Optional[types.RequestHeaders] = None,
         cookies: Optional[types.RequestCookies] = None,
         timeout: Optional[float] = None,
-        retryer_settings: Optional[RetryerSettings] = None,
+        retryer_settings: Optional[RetrySettings] = None,
         logger_settings: Optional[LoggerSettings] = None,
         *,
         enable_prometheus_metrics: bool = False,
     ) -> None:
-        self._retryer_settings = retryer_settings or RetryerSettings()
+        self._retryer_settings = retryer_settings or RetrySettings()
         self._logger_settings = logger_settings or LoggerSettings()
         self._logger = logging.getLogger(type(self).__name__)
         self._enable_prometheus_metrics = enable_prometheus_metrics

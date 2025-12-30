@@ -45,11 +45,11 @@ async def run():
 
 ```python
 from requester_kit import BaseRequesterKit
-from requester_kit.types import LoggerSettings, RetryerSettings
+from requester_kit.types import LoggerSettings, RetrySettings
 
 client = BaseRequesterKit(
     base_url="https://api.example.com",
-    retryer_settings=RetryerSettings(
+    retryer_settings=RetrySettings(
         retries=3,
         delay=0.2,
         increment=0.1,

@@ -70,7 +70,7 @@ class BaseSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class RetryerSettings(BaseSettings):
+class RetrySettings(BaseSettings):
     retries: PositiveInt = 0
     delay: PositiveFloat = 0.5
     increment: PositiveFloat = 0.1

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from requester_kit import client as client_module
 from requester_kit.client import BaseRequesterKit
-from requester_kit.types import RetryerSettings
+from requester_kit.types import RetrySettings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -475,7 +475,7 @@ async def test__base_async_requester__prometheus_metrics__attempt_label_on_retry
     mocker.patch.object(httpx.AsyncClient, "send", side_effect=[error_response, ok_response])
 
     requester = BaseRequesterKit(
-        retryer_settings=RetryerSettings(retries=1, delay=0, increment=0),
+        retryer_settings=RetrySettings(retries=1, delay=0, increment=0),
         enable_prometheus_metrics=True,
     )
     response = await requester.get("http://localhost/hewwo")
@@ -524,7 +524,7 @@ async def test__base_async_requester_no_retries__on_4xx_response_code__error(
     )
     mocked_send = mocker.patch.object(httpx.AsyncClient, "send", side_effect=[side_effect] * 6)
     response = await BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=5,
             delay=0,
             increment=0,
@@ -551,7 +551,7 @@ async def test__base_async_requester_retry__on_4xx_response_code_when_it_is_expl
         side_effect=side_effect,
     )
     response = await BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=5,
             delay=0,
             increment=0,
@@ -578,7 +578,7 @@ async def test__base_async_requester_no_retry__on_2xx_response_code_even_when_it
         side_effect=[success_response],
     )
     async_requester = BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=5,
             delay=0,
             increment=0,
@@ -594,7 +594,7 @@ async def test__base_async_requester_no_retry__on_2xx_response_code_even_when_it
 async def test_base_async_requester_wrong_status_codes():
     with pytest.raises(ValidationError) as exc_info:
         BaseRequesterKit(
-            retryer_settings=RetryerSettings(
+            retryer_settings=RetrySettings(
                 retries=5,
                 delay=0,
                 increment=0,
@@ -627,7 +627,7 @@ async def test__base_async_requester_retry__on_4xx_response_code_when_it_is_expl
         side_effect=[error_response, error_response, successful_response],
     )
     response = await BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=10,
             delay=0,
             increment=0,
@@ -659,7 +659,7 @@ async def test__base_async_requester_retries__two_exceptions_one_ok__success(moc
         ],
     )
     response = await BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=2,
             delay=0,
             increment=0,
@@ -675,7 +675,7 @@ async def test__base_async_requester_backoff_factor(mock_httpx: MockHTTPX):
     mock_httpx(500, b'{"Such":"error"}')
     start = time.time()
     response = await BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=3,
             delay=0.2,
             increment=0.1,
@@ -689,7 +689,7 @@ async def test__base_async_requester_backoff_factor(mock_httpx: MockHTTPX):
 async def test_no_data_validation(mock_httpx: MockHTTPX):
     mock_httpx(200, b'{"bla":"blabla"}')
     response = await BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=3,
             delay=0.2,
             increment=0.1,
@@ -703,7 +703,7 @@ async def test_no_data_validation(mock_httpx: MockHTTPX):
 async def test_invalid_data_response(mock_httpx: MockHTTPX):
     mock_httpx(200, b'{"bla":"blabla"}')
     response = await BaseRequesterKit(
-        retryer_settings=RetryerSettings(
+        retryer_settings=RetrySettings(
             retries=3,
             delay=0.2,
             increment=0.1,
