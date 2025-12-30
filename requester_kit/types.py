@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from collections.abc import Mapping, Sequence
-from typing import IO, Annotated, Any, Literal, TypeVar
+from typing import IO, Annotated, Any, Generic, Literal, Optional, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -40,16 +42,16 @@ retry_status_codes = Literal[
 RequestHeaders = dict[str, Any]
 RequestParams = dict[str, Any]
 RequestData = dict[str, Any]
-FileContent = IO[bytes] | bytes | str
-FileTypes = (
-    FileContent
-    | tuple[str | None, FileContent]
-    | tuple[str | None, FileContent, str | None]
-    | tuple[str | None, FileContent, str | None, Mapping[str, str]]
-)
-RequestFiles = Mapping[str, FileTypes] | Sequence[tuple[str, FileTypes]]
-RequestJson = dict[str, Any] | list[dict[str, Any]]
-RequestContent = str | bytes
+FileContent = Union[IO[bytes], bytes, str]
+FileTypes = Union[
+    FileContent,
+    tuple[Optional[str], FileContent],
+    tuple[Optional[str], FileContent, Optional[str]],
+    tuple[Optional[str], FileContent, Optional[str], Mapping[str, str]],
+]
+RequestFiles = Union[Mapping[str, FileTypes], Sequence[tuple[str, FileTypes]]]
+RequestJson = Union[dict[str, Any], list[dict[str, Any]]]
+RequestContent = Union[str, bytes]
 RequestCookies = dict[str, Any]
 RequestAuth = tuple[str, str]
 
@@ -57,10 +59,10 @@ PositiveInt = Annotated[int, Field(strict=True, ge=0)]
 PositiveFloat = Annotated[float, Field(strict=True, ge=0)]
 
 
-class RequesterKitResponse[T_co](BaseModel):
-    status_code: int | None = None
+class RequesterKitResponse(BaseModel, Generic[T_co]):
+    status_code: Optional[int] = None
     is_ok: bool
-    parsed_data: T_co | None = None
+    parsed_data: Optional[T_co] = None
     raw_data: bytes = b""
 
 

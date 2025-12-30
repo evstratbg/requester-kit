@@ -1,17 +1,23 @@
+from __future__ import annotations
+
 import io
 import time
-from collections.abc import Awaitable, Callable
-from http import HTTPMethod
+from typing import TYPE_CHECKING, Union
 
 import httpx
 import pytest
 from pydantic import BaseModel, ValidationError
-from pytest_mock import MockerFixture
 
 from requester_kit import client as client_module
 from requester_kit.client import BaseRequesterKit
 from requester_kit.types import RetryerSettings
-from tests.conftest import MockHTTPX
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from pytest_mock import MockerFixture
+
+    from tests.conftest import MockHTTPX
 
 
 class HelloWorldModel(BaseModel):
@@ -21,12 +27,12 @@ class HelloWorldModel(BaseModel):
 method_parametrize = pytest.mark.parametrize(
     ("method", "method_name"),
     [
-        (BaseRequesterKit.get, HTTPMethod.GET),
-        (BaseRequesterKit.post, HTTPMethod.POST),
-        (BaseRequesterKit.put, HTTPMethod.PUT),
-        (BaseRequesterKit.delete, HTTPMethod.DELETE),
-        (BaseRequesterKit.patch, HTTPMethod.PATCH),
-        (BaseRequesterKit.head, HTTPMethod.HEAD),
+        (BaseRequesterKit.get, "GET"),
+        (BaseRequesterKit.post, "POST"),
+        (BaseRequesterKit.put, "PUT"),
+        (BaseRequesterKit.delete, "DELETE"),
+        (BaseRequesterKit.patch, "PATCH"),
+        (BaseRequesterKit.head, "HEAD"),
     ],
 )
 
@@ -36,7 +42,7 @@ async def test__base_async_requester__403_and_no_log_error_for_4xx__should_print
     async_requester: BaseRequesterKit,
     mock_httpx: MockHTTPX,
     method: Callable[..., Awaitable[httpx.Response]],
-    method_name: HTTPMethod,
+    method_name: str,
     caplog: pytest.LogCaptureFixture,
 ):
     async_requester._logger_settings.log_error_for_4xx = False
@@ -54,7 +60,7 @@ async def test__base_async_requester__500_and_no_log_error_for_5xx__should_print
     async_requester: BaseRequesterKit,
     mock_httpx: MockHTTPX,
     method: Callable[..., Awaitable[httpx.Response]],
-    method_name: HTTPMethod,
+    method_name: str,
     caplog: pytest.LogCaptureFixture,
 ):
     async_requester._logger_settings.log_error_for_5xx = False
@@ -72,7 +78,7 @@ async def test__base_async_requester__403_and_500__should_print_error_log(
     async_requester: BaseRequesterKit,
     mock_httpx: MockHTTPX,
     method: Callable[..., Awaitable[httpx.Response]],
-    method_name: HTTPMethod,
+    method_name: str,
     caplog: pytest.LogCaptureFixture,
 ):
     mock_httpx(500)
@@ -103,7 +109,7 @@ async def test__base_async_requester__403_and_500__should_print_error_log(
 async def test__base_async_requester__all_http_methods(
     async_requester: BaseRequesterKit,
     method: Callable[[BaseRequesterKit, str], Awaitable[httpx.Response]],
-    method_name: HTTPMethod,
+    method_name: str,
 ):
     response = await async_requester._send_request(
         httpx.Request(
@@ -117,7 +123,7 @@ async def test__base_async_requester__all_http_methods(
 
 async def test__base_async_requester__send_params(async_requester: BaseRequesterKit):
     response = await async_requester._send_request(
-        httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo", params={"hello": "world"})
+        httpx.Request(method="GET", url="http://localhost/hewwo", params={"hello": "world"})
     )
     assert response.status_code == 200
     assert response.request.url == "http://localhost/hewwo?hello=world"
@@ -126,7 +132,7 @@ async def test__base_async_requester__send_params(async_requester: BaseRequester
 async def test__base_async_requester__send_files(async_requester: BaseRequesterKit):
     response = await async_requester._send_request(
         httpx.Request(
-            method=HTTPMethod.POST,
+            method="POST",
             url="http://localhost/hewwo",
             files={"hello": io.BytesIO(b"darkness my old friend")},
         )
@@ -141,14 +147,14 @@ async def test__base_async_requester__send_files(async_requester: BaseRequesterK
 @pytest.mark.parametrize(
     "method",
     [
-        HTTPMethod.PUT,
-        HTTPMethod.POST,
-        HTTPMethod.PATCH,
+        "PUT",
+        "POST",
+        "PATCH",
     ],
 )
 async def test__base_async_requester__send_files_as_tuple(
     async_requester: BaseRequesterKit,
-    method: HTTPMethod,
+    method: str,
 ):
     response = await async_requester._send_request(
         httpx.Request(
@@ -169,7 +175,7 @@ async def test__base_async_requester__send_data_as_dict(
 ):
     response = await async_requester._send_request(
         httpx.Request(
-            method=HTTPMethod.POST,
+            method="POST",
             url="http://localhost/hewwo",
             data={"hello": "world"},
         )
@@ -179,10 +185,13 @@ async def test__base_async_requester__send_data_as_dict(
 
 
 @pytest.mark.parametrize("data", [b"hewwo", "hewwo"])
-async def test__base_async_requester__send_data_as_str(async_requester: BaseRequesterKit, data: str | bytes):
+async def test__base_async_requester__send_data_as_str(
+    async_requester: BaseRequesterKit,
+    data: Union[str, bytes],
+):
     response = await async_requester._send_request(
         httpx.Request(
-            method=HTTPMethod.POST,
+            method="POST",
             url="http://localhost/hewwo",
             content=data,
         )
@@ -194,7 +203,7 @@ async def test__base_async_requester__send_data_as_str(async_requester: BaseRequ
 async def test__base_async_requester__send_login_password_info(mock_httpx: MockHTTPX, mocker: MockerFixture):
     mocked_send = mock_httpx(200)
     requester = BaseRequesterKit(auth=("MyLogin", "MyPassword"))
-    response = await requester._send_request(httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo"))
+    response = await requester._send_request(httpx.Request(method="GET", url="http://localhost/hewwo"))
     mocked_send.assert_awaited_once_with(response.request, auth=requester._client.auth)
 
 
@@ -453,13 +462,13 @@ async def test__base_async_requester__prometheus_metrics__attempt_label_on_retry
 
     error_response = httpx.Response(
         status_code=500,
-        request=httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo"),
+        request=httpx.Request(method="GET", url="http://localhost/hewwo"),
         content=b"{}",
         headers={"content-type": "application/json"},
     )
     ok_response = httpx.Response(
         status_code=200,
-        request=httpx.Request(method=HTTPMethod.GET, url="http://localhost/hewwo"),
+        request=httpx.Request(method="GET", url="http://localhost/hewwo"),
         content=b"{}",
         headers={"content-type": "application/json"},
     )
@@ -637,12 +646,12 @@ async def test__base_async_requester_retries__two_exceptions_one_ok__success(moc
         side_effect=[
             httpx.HTTPError("Such error"),
             httpx.Response(
-                request=httpx.Request(method=HTTPMethod.POST, url="http://localhost/hewwo"),
+                request=httpx.Request(method="POST", url="http://localhost/hewwo"),
                 status_code=500,
                 content=b'{"Such":"error"}',
             ),
             httpx.Response(
-                request=httpx.Request(method=HTTPMethod.POST, url="http://localhost/hewwo"),
+                request=httpx.Request(method="POST", url="http://localhost/hewwo"),
                 status_code=201,
                 content=b'{"hello": "world"}',
                 headers={"content-type": "application/json"},
