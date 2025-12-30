@@ -1,6 +1,6 @@
 [project]
 name = "requester-kit"
-version = "0.1.1"
+version = "0.2.0"
 license = {text = "MIT"}
 description = "Async HTTP connector toolkit with retries, testing helpers, and Prometheus metrics."
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
     "orjson>=3.10.7",
     "tenacity>=9.0.0",
 ]
-requires-python = ">= 3.12"
+requires-python = ">= 3.9"
 
 [project.urls]
 Homepage = "https://github.com/evstratbg/requester-kit"
@@ -91,6 +91,7 @@ exclude_lines = [
 [tool.ruff]
 line-length = 120
 extend-exclude = ["migrations"]
+target-version = "py39"
 
 [tool.ruff.lint]
 unfixable = [
@@ -117,6 +118,8 @@ ignore = [
     "ASYNC109", # false-positive timeout param
     "N818",   # name exceptions with Error suffix
     "TRY400", # always fail with traceback
+    "UP007",  # Use `X | Y` for type annotations (not supported on Python 3.9)
+    "UP045",  # Use `X | None` for type annotations (not supported on Python 3.9)
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -149,7 +152,7 @@ log_level = "INFO"
 
 [tool.mypy]
 # Указывает версию Python, используемую в проекте.
-python_version = "3.12"
+python_version = "3.9"
 
 # Предупреждает о неиспользуемых конфигурациях.
 warn_unused_configs = true

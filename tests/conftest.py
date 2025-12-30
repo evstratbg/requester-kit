@@ -1,14 +1,19 @@
-from collections.abc import Mapping
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 from unittest import mock
 
 import httpx
 import pytest
 from pytest_fixture_classes import fixture_class
-from pytest_mock import MockerFixture
 
 from requester_kit.client import BaseRequesterKit
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from pytest_mock import MockerFixture
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -21,7 +26,7 @@ class MockHTTPX:
         self,
         status_code: int,
         content: bytes = b"{}",
-        headers: Mapping[str, Any] | None = None,
+        headers: Optional[Mapping[str, Any]] = None,
     ) -> mock.AsyncMock:
         async def mocked_send(
             request: httpx.Request,

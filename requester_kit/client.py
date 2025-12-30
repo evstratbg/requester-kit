@@ -1,30 +1,33 @@
+from __future__ import annotations
+
 import inspect
 import logging
 import time
-from http import HTTPMethod, HTTPStatus
+from http import HTTPStatus
 from importlib import import_module
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from httpx import AsyncClient, AsyncHTTPTransport, HTTPError, Request, Response
 from pydantic import ValidationError
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_incrementing
 
-from requester_kit import types
 from requester_kit.types import LoggerSettings, RequesterKitResponse, RetryerSettings, T_co
 
 if TYPE_CHECKING:
     from prometheus_client import Counter, Histogram
 
-_PROM_HISTOGRAMS: dict[str, "Histogram"] = {}
-_PROM_COUNTERS: dict[str, "Counter"] = {}
+    from requester_kit import types
+
+_PROM_HISTOGRAMS: dict[str, Histogram] = {}
+_PROM_COUNTERS: dict[str, Counter] = {}
 _PROM_REQUEST_DURATION_NAME = "requester_kit_request_duration_seconds"
 _PROM_REQUEST_ERRORS_NAME = "requester_kit_request_errors_total"
 _PROM_REQUEST_SIZE_NAME = "requester_kit_request_payload_bytes"
 _PROM_RESPONSE_SIZE_NAME = "requester_kit_response_bytes"
 
 
-def _get_prometheus_histogram(name: str) -> "Histogram":
+def _get_prometheus_histogram(name: str) -> Histogram:
     try:
         histogram = import_module("prometheus_client").Histogram
     except ImportError as exc:
@@ -39,7 +42,7 @@ def _get_prometheus_histogram(name: str) -> "Histogram":
     return _PROM_HISTOGRAMS[name]
 
 
-def _get_prometheus_counter(name: str) -> "Counter":
+def _get_prometheus_counter(name: str) -> Counter:
     try:
         counter = import_module("prometheus_client").Counter
     except ImportError as exc:
@@ -54,12 +57,12 @@ def _get_prometheus_counter(name: str) -> "Counter":
     return _PROM_COUNTERS[name]
 
 
-def _get_prometheus_size_histogram(name: str) -> "Histogram":
+def _get_prometheus_size_histogram(name: str) -> Histogram:
     return _get_prometheus_histogram(name)
 
 
 class RequesterKitRequestError(Exception):
-    def __init__(self, message: str, status_code: int | None = None) -> None:
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
         super().__init__(message)
         self.status_code = status_code
 
@@ -68,13 +71,13 @@ class BaseRequesterKit:
     def __init__(
         self,
         base_url: str = "",
-        auth: types.RequestAuth | None = None,
-        params: types.RequestParams | None = None,
-        headers: types.RequestHeaders | None = None,
-        cookies: types.RequestCookies | None = None,
-        timeout: float | None = None,
-        retryer_settings: RetryerSettings | None = None,
-        logger_settings: LoggerSettings | None = None,
+        auth: Optional[types.RequestAuth] = None,
+        params: Optional[types.RequestParams] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        cookies: Optional[types.RequestCookies] = None,
+        timeout: Optional[float] = None,
+        retryer_settings: Optional[RetryerSettings] = None,
+        logger_settings: Optional[LoggerSettings] = None,
         *,
         enable_prometheus_metrics: bool = False,
     ) -> None:
@@ -101,12 +104,12 @@ class BaseRequesterKit:
     async def get(
         self,
         url: str,
-        response_model: type[T_co] | None = None,
-        headers: types.RequestHeaders | None = None,
-        params: types.RequestParams | None = None,
+        response_model: Optional[type[T_co]] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        params: Optional[types.RequestParams] = None,
     ) -> RequesterKitResponse[T_co]:
         return await self._make_request(
-            method=HTTPMethod.GET,
+            method="GET",
             url=url,
             headers=headers,
             params=params,
@@ -116,16 +119,16 @@ class BaseRequesterKit:
     async def post(
         self,
         url: str,
-        response_model: type[T_co] | None = None,
-        headers: types.RequestHeaders | None = None,
-        json: types.RequestJson | None = None,
-        data: types.RequestData | None = None,
-        content: types.RequestContent | None = None,
-        files: types.RequestFiles | None = None,
-        params: types.RequestParams | None = None,
+        response_model: Optional[type[T_co]] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        json: Optional[types.RequestJson] = None,
+        data: Optional[types.RequestData] = None,
+        content: Optional[types.RequestContent] = None,
+        files: Optional[types.RequestFiles] = None,
+        params: Optional[types.RequestParams] = None,
     ) -> RequesterKitResponse[T_co]:
         return await self._make_request(
-            method=HTTPMethod.POST,
+            method="POST",
             url=url,
             headers=headers,
             json=json,
@@ -139,16 +142,16 @@ class BaseRequesterKit:
     async def put(
         self,
         url: str,
-        response_model: type[T_co] | None = None,
-        headers: types.RequestHeaders | None = None,
-        json: types.RequestJson | None = None,
-        data: types.RequestData | None = None,
-        content: types.RequestContent | None = None,
-        files: types.RequestFiles | None = None,
-        params: types.RequestParams | None = None,
+        response_model: Optional[type[T_co]] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        json: Optional[types.RequestJson] = None,
+        data: Optional[types.RequestData] = None,
+        content: Optional[types.RequestContent] = None,
+        files: Optional[types.RequestFiles] = None,
+        params: Optional[types.RequestParams] = None,
     ) -> RequesterKitResponse[T_co]:
         return await self._make_request(
-            method=HTTPMethod.PUT,
+            method="PUT",
             url=url,
             headers=headers,
             json=json,
@@ -162,16 +165,16 @@ class BaseRequesterKit:
     async def patch(
         self,
         url: str,
-        response_model: type[T_co] | None = None,
-        headers: types.RequestHeaders | None = None,
-        json: types.RequestJson | None = None,
-        data: types.RequestData | None = None,
-        content: types.RequestContent | None = None,
-        files: types.RequestFiles | None = None,
-        params: types.RequestParams | None = None,
+        response_model: Optional[type[T_co]] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        json: Optional[types.RequestJson] = None,
+        data: Optional[types.RequestData] = None,
+        content: Optional[types.RequestContent] = None,
+        files: Optional[types.RequestFiles] = None,
+        params: Optional[types.RequestParams] = None,
     ) -> RequesterKitResponse[T_co]:
         return await self._make_request(
-            method=HTTPMethod.PATCH,
+            method="PATCH",
             url=url,
             headers=headers,
             json=json,
@@ -185,12 +188,12 @@ class BaseRequesterKit:
     async def head(
         self,
         url: str,
-        response_model: type[T_co] | None = None,
-        headers: types.RequestHeaders | None = None,
-        params: types.RequestParams | None = None,
+        response_model: Optional[type[T_co]] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        params: Optional[types.RequestParams] = None,
     ) -> RequesterKitResponse[T_co]:
         return await self._make_request(
-            method=HTTPMethod.HEAD,
+            method="HEAD",
             url=url,
             headers=headers,
             params=params,
@@ -200,12 +203,12 @@ class BaseRequesterKit:
     async def delete(
         self,
         url: str,
-        response_model: type[T_co] | None = None,
-        headers: types.RequestHeaders | None = None,
-        params: types.RequestParams | None = None,
+        response_model: Optional[type[T_co]] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        params: Optional[types.RequestParams] = None,
     ) -> RequesterKitResponse[T_co]:
         return await self._make_request(
-            method=HTTPMethod.DELETE,
+            method="DELETE",
             url=url,
             headers=headers,
             params=params,
@@ -225,15 +228,15 @@ class BaseRequesterKit:
 
     async def _make_request(
         self,
-        method: HTTPMethod,
+        method: str,
         url: str,
-        response_model: type[T_co] | None = None,
-        headers: types.RequestHeaders | None = None,
-        json: types.RequestJson | None = None,
-        data: types.RequestData | None = None,
-        content: types.RequestContent | None = None,
-        files: types.RequestFiles | None = None,
-        params: types.RequestParams | None = None,
+        response_model: Optional[type[T_co]] = None,
+        headers: Optional[types.RequestHeaders] = None,
+        json: Optional[types.RequestJson] = None,
+        data: Optional[types.RequestData] = None,
+        content: Optional[types.RequestContent] = None,
+        files: Optional[types.RequestFiles] = None,
+        params: Optional[types.RequestParams] = None,
     ) -> RequesterKitResponse[T_co]:
         request = self._client.build_request(
             method=method,
