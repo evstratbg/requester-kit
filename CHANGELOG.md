@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 Please follow [the Keep a Changelog standard](https://keepachangelog.com/en/1.0.0/).
 
+### Added
+- Add `headers` and `cookies` fields to `RequesterKitResponse`.
+- Add `error_msg` field to `RequesterKitResponse` for error details.
+
+### Changed
+- Add `verify` support to `BaseRequesterKit` constructor for TLS verification configuration.
+
 
 ## [1.1.2] - 2024-11-05
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from ssl import SSLContext
 from typing import IO, Annotated, Any, Generic, Literal, Optional, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -54,6 +55,7 @@ RequestJson = Union[dict[str, Any], list[dict[str, Any]]]
 RequestContent = Union[str, bytes]
 RequestCookies = dict[str, Any]
 RequestAuth = tuple[str, str]
+RequestVerify = Union[bool, str, SSLContext]
 
 PositiveInt = Annotated[int, Field(strict=True, ge=0)]
 PositiveFloat = Annotated[float, Field(strict=True, ge=0)]
@@ -62,8 +64,11 @@ PositiveFloat = Annotated[float, Field(strict=True, ge=0)]
 class RequesterKitResponse(BaseModel, Generic[T_co]):
     status_code: Optional[int] = None
     is_ok: bool
+    error_msg: Optional[str] = None
     parsed_data: Optional[T_co] = None
     raw_data: bytes = b""
+    headers: dict[str, str] = Field(default_factory=dict)
+    cookies: dict[str, str] = Field(default_factory=dict)
 
 
 class BaseSettings(BaseModel):

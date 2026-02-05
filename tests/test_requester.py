@@ -500,6 +500,7 @@ async def test__base_async_requester__exception_during_send__turned_into_500(
     mocker.patch.object(httpx.AsyncClient, "send", side_effect=httpx.HTTPError("Such error"))
     response = await async_requester.get("http://localhost/hewwo")
     assert not response.status_code
+    assert response.error_msg == "Such error"
 
 
 async def test__base_async_requester__exception_during_build_request__raised(
@@ -700,6 +701,21 @@ async def test_no_data_validation(mock_httpx: MockHTTPX):
     assert not response.parsed_data
 
 
+async def test_response_contains_headers_and_cookies(mock_httpx: MockHTTPX):
+    mock_httpx(
+        200,
+        b'{"hello":"world"}',
+        headers={
+            "content-type": "application/json",
+            "set-cookie": "session_id=abc123; Path=/; HttpOnly",
+        },
+    )
+    response = await BaseRequesterKit().get("http://localhost/hewwo", response_model=HelloWorldModel)
+
+    assert response.headers["content-type"] == "application/json"
+    assert response.cookies["session_id"] == "abc123"
+
+
 async def test_invalid_data_response(mock_httpx: MockHTTPX):
     mock_httpx(200, b'{"bla":"blabla"}')
     response = await BaseRequesterKit(
@@ -712,7 +728,28 @@ async def test_invalid_data_response(mock_httpx: MockHTTPX):
 
     assert response.status_code == 200
     assert not response.is_ok
+    assert response.error_msg is not None
 
 
 async def test_async_requester_not_retry_unexpected_error():
     assert BaseRequesterKit()._need_to_retry(ValueError) is False
+
+
+def test_base_requester_kit_passes_verify_to_transport(mocker: MockerFixture):
+    mocked_transport = mocker.patch("requester_kit.client.AsyncHTTPTransport")
+    BaseRequesterKit(verify=False)
+
+    mocked_transport.assert_called_once_with(retries=0, verify=False)
+
+
+async def test_base_requester_kit_send_request_uses_main_client(mocker: MockerFixture):
+    requester = BaseRequesterKit(verify=True)
+    request = httpx.Request(method="GET", url="http://localhost/hewwo")
+
+    main_send = mocker.patch.object(requester._client, "send")
+    main_send.return_value = httpx.Response(status_code=200, request=request, content=b"{}")
+
+    response = await requester._send_request(request=request)
+
+    assert response.status_code == 200
+    main_send.assert_awaited_once_with(request, auth=requester._client.auth)
