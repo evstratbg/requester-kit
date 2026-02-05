@@ -4,6 +4,7 @@ import inspect
 import logging
 import time
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from importlib import import_module
 from json import JSONDecodeError
 from typing import TYPE_CHECKING, Optional, cast
@@ -68,7 +69,7 @@ class RequesterKitRequestError(Exception):
 
 
 class BaseRequesterKit:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         base_url: str = "",
         auth: Optional[types.RequestAuth] = None,
@@ -76,6 +77,7 @@ class BaseRequesterKit:
         headers: Optional[types.RequestHeaders] = None,
         cookies: Optional[types.RequestCookies] = None,
         timeout: Optional[float] = None,
+        verify: Optional[types.RequestVerify] = None,
         retryer_settings: Optional[RetrySettings] = None,
         logger_settings: Optional[LoggerSettings] = None,
         *,
@@ -85,6 +87,8 @@ class BaseRequesterKit:
         self._logger_settings = logger_settings or LoggerSettings()
         self._logger = logging.getLogger(type(self).__name__)
         self._enable_prometheus_metrics = enable_prometheus_metrics
+        self._verify = verify
+        transport_verify: types.RequestVerify = True if verify is None else verify
         self._client = AsyncClient(
             base_url=base_url,
             headers=headers,
@@ -92,7 +96,7 @@ class BaseRequesterKit:
             auth=auth,
             params=params,
             timeout=timeout,
-            transport=AsyncHTTPTransport(retries=self._retryer_settings.retries),
+            transport=AsyncHTTPTransport(retries=self._retryer_settings.retries, verify=transport_verify),
         )
         self._retryer = AsyncRetrying(
             stop=stop_after_attempt(self._retryer_settings.retries + 1),
@@ -251,11 +255,15 @@ class BaseRequesterKit:
         try:
             async for attempt in self._retryer:
                 with attempt:
-                    response = await self._send_request(request, attempt.retry_state.attempt_number)
+                    response = await self._send_request(
+                        request=request,
+                        attempt_number=attempt.retry_state.attempt_number,
+                    )
         except RequesterKitRequestError as exc:
             return RequesterKitResponse(
                 status_code=exc.status_code,
                 is_ok=False,
+                error_msg=str(exc),
             )
 
         if not response_model:
@@ -263,6 +271,8 @@ class BaseRequesterKit:
                 status_code=response.status_code,
                 is_ok=True,
                 raw_data=response.content,
+                headers=self._extract_response_headers(response),
+                cookies=self._extract_response_cookies(response),
             )
 
         try:
@@ -271,16 +281,25 @@ class BaseRequesterKit:
                 is_ok=True,
                 parsed_data=response_model.model_validate(response.json()),
                 raw_data=response.content,
+                headers=self._extract_response_headers(response),
+                cookies=self._extract_response_cookies(response),
             )
         except (ValidationError, JSONDecodeError) as exc:
             self._logger.error("Unexpected response with error: %s", exc)
             return RequesterKitResponse(
                 status_code=response.status_code,
                 is_ok=False,
+                error_msg=str(exc),
                 raw_data=response.content,
+                headers=self._extract_response_headers(response),
+                cookies=self._extract_response_cookies(response),
             )
 
-    async def _send_request(self, request: Request, attempt_number: int = 1) -> Response:
+    async def _send_request(
+        self,
+        request: Request,
+        attempt_number: int = 1,
+    ) -> Response:
         self._log_request(request)
 
         start_time = time.perf_counter()
@@ -288,13 +307,13 @@ class BaseRequesterKit:
         error_counter = None
         request_size_metric = None
         response_size_metric = None
+        metric_label = self._resolve_metric_label(request)
+        attempt_label = str(attempt_number)
         if self._enable_prometheus_metrics:
             metric = _get_prometheus_histogram(_PROM_REQUEST_DURATION_NAME)
             error_counter = _get_prometheus_counter(_PROM_REQUEST_ERRORS_NAME)
             request_size_metric = _get_prometheus_size_histogram(_PROM_REQUEST_SIZE_NAME)
             response_size_metric = _get_prometheus_size_histogram(_PROM_RESPONSE_SIZE_NAME)
-            metric_label = self._resolve_metric_label(request)
-            attempt_label = str(attempt_number)
             request_size_metric.labels(
                 method=metric_label,
                 status_code="request",
@@ -302,28 +321,15 @@ class BaseRequesterKit:
                 attempt=attempt_label,
             ).observe(len(request.content or b""))
 
-        try:
-            response = await self._client.send(
-                request,
-                auth=self._client.auth,
-            )
-        except HTTPError as exc:
-            duration = time.perf_counter() - start_time
-            if metric is not None:
-                metric.labels(
-                    method=metric_label,
-                    status_code="exception",
-                    status_class="error",
-                    attempt=attempt_label,
-                ).observe(duration)
-            if error_counter is not None:
-                error_counter.labels(
-                    method=metric_label,
-                    status_code="exception",
-                    error_type="http_error",
-                    attempt=attempt_label,
-                ).inc()
-            raise RequesterKitRequestError(str(exc)) from exc
+        response = await self._send_http_request(
+            client=self._client,
+            request=request,
+            start_time=start_time,
+            metric=metric,
+            metric_label=metric_label,
+            attempt_label=attempt_label,
+            error_counter=error_counter,
+        )
 
         duration = time.perf_counter() - start_time
         if metric is not None:
@@ -354,6 +360,39 @@ class BaseRequesterKit:
             raise RequesterKitRequestError("Bad response", response.status_code)
 
         return response
+
+    async def _send_http_request(
+        self,
+        client: AsyncClient,
+        request: Request,
+        start_time: float,
+        metric: Optional[Histogram],
+        metric_label: str,
+        attempt_label: str,
+        error_counter: Optional[Counter],
+    ) -> Response:
+        try:
+            return await client.send(
+                request,
+                auth=self._client.auth,
+            )
+        except HTTPError as exc:
+            duration = time.perf_counter() - start_time
+            if metric is not None:
+                metric.labels(
+                    method=metric_label,
+                    status_code="exception",
+                    status_class="error",
+                    attempt=attempt_label,
+                ).observe(duration)
+            if error_counter is not None:
+                error_counter.labels(
+                    method=metric_label,
+                    status_code="exception",
+                    error_type="http_error",
+                    attempt=attempt_label,
+                ).inc()
+            raise RequesterKitRequestError(str(exc)) from exc
 
     def _resolve_metric_label(self, request: Request) -> str:
         frame = inspect.currentframe()
@@ -402,3 +441,21 @@ class BaseRequesterKit:
             extra["body"] = response.content.decode()
             self._logger.warning(msg, extra=extra)
             return
+
+    def _extract_response_headers(self, response: Response) -> dict[str, str]:
+        return dict(response.headers.items())
+
+    def _extract_response_cookies(self, response: Response) -> dict[str, str]:
+        try:
+            return dict(response.cookies.items())
+        except RuntimeError:
+            set_cookie_headers = response.headers.get_list("set-cookie")
+            if not set_cookie_headers:
+                return {}
+            cookies = {}
+            for set_cookie_header in set_cookie_headers:
+                parsed = SimpleCookie()
+                parsed.load(set_cookie_header)
+                for key, value in parsed.items():
+                    cookies[key] = value.value
+            return cookies
