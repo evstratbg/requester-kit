@@ -51,7 +51,7 @@ async def test__base_async_requester__403_and_no_log_error_for_4xx__should_print
     assert response.status_code == 403
 
     assert caplog.record_tuples == [
-        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, "http request started"),
     ]
 
 
@@ -69,7 +69,7 @@ async def test__base_async_requester__500_and_no_log_error_for_5xx__should_print
     assert response.status_code == 500
 
     assert caplog.record_tuples == [
-        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, "http request started"),
     ]
 
 
@@ -90,13 +90,13 @@ async def test__base_async_requester__403_and_500__should_print_error_log(
     assert response.status_code == 403
 
     assert caplog.record_tuples == [
-        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, "http request started"),
         (
             "BaseRequesterKit",
             30,
             "Response from (http://localhost/hewwo) with status_code 500",
         ),
-        ("BaseRequesterKit", 20, f"Sending {method_name} request to http://localhost/hewwo"),
+        ("BaseRequesterKit", 20, "http request started"),
         (
             "BaseRequesterKit",
             30,
@@ -519,6 +519,7 @@ async def test__base_async_requester_no_retries__on_4xx_response_code__error(
     status_code: int,
 ):
     side_effect = httpx.Response(
+        request=httpx.Request(method="GET", url="http://localhost/hewwo"),
         status_code=status_code,
         content=b'{"error": {"message": "Wow. Such error"}}',
         headers={"content-type": "application/json"},
@@ -541,6 +542,7 @@ async def test__base_async_requester_retry__on_4xx_response_code_when_it_is_expl
     status_code: int,
 ):
     error_response = httpx.Response(
+        request=httpx.Request(method="GET", url="http://localhost/hewwo"),
         status_code=status_code,
         content=b'{"error": {"message": "Wow. Such error"}}',
         headers={"content-type": "application/json"},
@@ -569,6 +571,7 @@ async def test__base_async_requester_no_retry__on_2xx_response_code_even_when_it
     status_code: int,
 ):
     success_response = httpx.Response(
+        request=httpx.Request(method="GET", url="http://localhost/hewwo"),
         status_code=status_code,
         content=b'{"hello": "world"}',
         headers={"content-type": "application/json"},
@@ -612,11 +615,13 @@ async def test__base_async_requester_retry__on_4xx_response_code_when_it_is_expl
     status_code: int,
 ):
     error_response = httpx.Response(
+        request=httpx.Request(method="GET", url="http://localhost/hewwo"),
         status_code=status_code,
         content=b'{"error": {"message": "Wow. Such error"}}',
         headers={"content-type": "application/json"},
     )
     successful_response = httpx.Response(
+        request=httpx.Request(method="GET", url="http://localhost/hewwo"),
         status_code=201,
         content=b'{"hello": "world"}',
         headers={"content-type": "application/json"},
