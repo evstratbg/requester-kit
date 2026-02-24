@@ -7,7 +7,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from importlib import import_module
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from httpx import AsyncClient, AsyncHTTPTransport, HTTPError, Request, Response
 from pydantic import ValidationError
@@ -80,12 +80,14 @@ class BaseRequesterKit:
         verify: Optional[types.RequestVerify] = None,
         retryer_settings: Optional[RetrySettings] = None,
         logger_settings: Optional[LoggerSettings] = None,
+        logger: Any | None = None,
         *,
         enable_prometheus_metrics: bool = False,
     ) -> None:
         self._retryer_settings = retryer_settings or RetrySettings()
         self._logger_settings = logger_settings or LoggerSettings()
-        self._logger = logging.getLogger(type(self).__name__)
+
+        self._logger = logger or logging.getLogger(type(self).__name__)
         self._enable_prometheus_metrics = enable_prometheus_metrics
         self._verify = verify
         transport_verify: types.RequestVerify = True if verify is None else verify
@@ -416,7 +418,14 @@ class BaseRequesterKit:
         return f"{self.__class__.__name__}.{request.method.lower()}"
 
     def _log_request(self, request: Request) -> None:
-        self._logger.info("Sending %s request to %s", request.method, request.url)
+        self._logger.info(
+            "http request started",
+            extra={
+                "event_name": "http.request.started",
+                "method": request.method,
+                "url": str(request.url),
+            },
+        )
 
     def _log_response(
         self,
@@ -425,22 +434,30 @@ class BaseRequesterKit:
         request_url: str,
     ) -> None:
         msg = f"Response from ({request_url}) with status_code {response.status_code}"
-        extra = {
-            "status_code": response.status_code,
+        payload = {
+            "event_name": "http.request.finished",
+            "method": response.request.method if response.request is not None else None,
             "url": request_url,
-            "total_time": total_time,
+            "status_code": response.status_code,
+            "total_time_seconds": round(total_time, 3),
         }
 
         if response.status_code < HTTPStatus.BAD_REQUEST:
-            self._logger.info(msg, extra=extra)
+            self._logger.info(msg, extra=payload)
             return
 
-        if (response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR and self._logger_settings.log_error_for_5xx) or (
-            response.status_code < HTTPStatus.INTERNAL_SERVER_ERROR and self._logger_settings.log_error_for_4xx
-        ):
-            extra["body"] = response.content.decode()
-            self._logger.warning(msg, extra=extra)
+        should_log_error = (
+            response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR and self._logger_settings.log_error_for_5xx
+        ) or (response.status_code < HTTPStatus.INTERNAL_SERVER_ERROR and self._logger_settings.log_error_for_4xx)
+        if not should_log_error:
             return
+
+        try:
+            payload["response_body"] = response.text
+        except AttributeError:
+            payload["response_body"] = "<unavailable>"
+
+        self._logger.warning(msg, extra=payload)
 
     def _extract_response_headers(self, response: Response) -> dict[str, str]:
         return dict(response.headers.items())
