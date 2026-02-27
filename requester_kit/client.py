@@ -255,7 +255,7 @@ class BaseRequesterKit:
             content=content,
         )
         try:
-            async for attempt in self._retryer:
+            async for attempt in self._retryer:  # pragma: no branch
                 with attempt:
                     response = await self._send_request(
                         request=request,
@@ -418,7 +418,8 @@ class BaseRequesterKit:
 
     def _log_request(self, request: Request, request_target: str) -> None:
         self._logger.info(
-            f"request to {request_target} started",
+            "request to %s started",
+            request_target,
             extra={
                 "event_name": "http.request.started",
                 "method": request.method,
@@ -444,8 +445,7 @@ class BaseRequesterKit:
         }
 
         if response.status_code < HTTPStatus.BAD_REQUEST:
-            msg = f"request to {request_target} ok"
-            self._logger.info(msg, extra=payload)
+            self._logger.info("request to %s ok", request_target, extra=payload)
             return
 
         should_log_error = (
@@ -459,8 +459,7 @@ class BaseRequesterKit:
         except AttributeError:
             payload["response_body"] = "<unavailable>"
 
-        msg = f"request to {request_target} failed"
-        self._logger.warning(msg, extra=payload)
+        self._logger.warning("request to %s failed", request_target, extra=payload)
 
     def _extract_response_headers(self, response: Response) -> dict[str, str]:
         return dict(response.headers.items())

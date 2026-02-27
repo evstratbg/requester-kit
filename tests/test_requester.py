@@ -758,3 +758,73 @@ async def test_base_requester_kit_send_request_uses_main_client(mocker: MockerFi
 
     assert response.status_code == 200
     main_send.assert_awaited_once_with(request, auth=requester._client.auth)
+
+
+def test_log_response_uses_unavailable_body_when_text_is_missing(
+    mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+):
+    requester = BaseRequesterKit()
+
+    class _BrokenResponse:
+        status_code = 500
+        request = httpx.Request(method="GET", url="http://localhost/hewwo")
+
+        @property
+        def text(self):
+            raise AttributeError
+
+    requester._log_response(
+        response=_BrokenResponse(),  # type: ignore[arg-type]
+        total_time=0.123,
+        request_url="http://localhost/hewwo",
+        request_target="BaseRequesterKit.get",
+    )
+
+    assert caplog.record_tuples == [
+        ("BaseRequesterKit", 30, "request to BaseRequesterKit.get failed"),
+    ]
+
+
+def test_extract_response_cookies_fallback_for_runtime_error():
+    requester = BaseRequesterKit()
+
+    class _BrokenCookies:
+        def items(self):
+            raise RuntimeError
+
+    class _Headers:
+        @staticmethod
+        def get_list(_: str):
+            return [
+                "session_id=abc123; Path=/; HttpOnly",
+                "theme=dark; Path=/",
+            ]
+
+    class _BrokenResponse:
+        cookies = _BrokenCookies()
+        headers = _Headers()
+
+    cookies = requester._extract_response_cookies(_BrokenResponse())  # type: ignore[arg-type]
+
+    assert cookies == {"session_id": "abc123", "theme": "dark"}
+
+
+def test_extract_response_cookies_fallback_returns_empty_dict():
+    requester = BaseRequesterKit()
+
+    class _BrokenCookies:
+        def items(self):
+            raise RuntimeError
+
+    class _Headers:
+        @staticmethod
+        def get_list(_: str):
+            return []
+
+    class _BrokenResponse:
+        cookies = _BrokenCookies()
+        headers = _Headers()
+
+    cookies = requester._extract_response_cookies(_BrokenResponse())  # type: ignore[arg-type]
+
+    assert cookies == {}
