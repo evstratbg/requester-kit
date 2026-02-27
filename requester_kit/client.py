@@ -254,6 +254,7 @@ class BaseRequesterKit:
             params=params,
             content=content,
         )
+        response: Optional[Response] = None
         try:
             async for attempt in self._retryer:  # pragma: no branch
                 with attempt:
@@ -267,6 +268,7 @@ class BaseRequesterKit:
                 is_ok=False,
                 error_msg=str(exc),
             )
+        response = cast("Response", response)
 
         if not response_model:
             return RequesterKitResponse(

@@ -29,7 +29,7 @@ lint:
 	@echo "$(GREEN)Running linters and formatters...$(NC)"
 	uv run ruff check --fix . && \
 	uv run ruff format --check . && \
-	uv run mypy . --strict || (echo "$(RED)Linting failed!$(NC)"; exit 1)
+	uv run ty check requester_kit || (echo "$(RED)Linting failed!$(NC)"; exit 1)
 	@echo "$(GREEN)Linting completed successfully!$(NC)"
 
 
