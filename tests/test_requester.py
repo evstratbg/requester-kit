@@ -51,7 +51,7 @@ async def test__base_async_requester__403_and_no_log_error_for_4xx__should_print
     assert response.status_code == 403
 
     assert caplog.record_tuples == [
-        ("BaseRequesterKit", 20, "http request started"),
+        ("BaseRequesterKit", 20, f"request to BaseRequesterKit.{method.__name__} started"),
     ]
 
 
@@ -69,7 +69,7 @@ async def test__base_async_requester__500_and_no_log_error_for_5xx__should_print
     assert response.status_code == 500
 
     assert caplog.record_tuples == [
-        ("BaseRequesterKit", 20, "http request started"),
+        ("BaseRequesterKit", 20, f"request to BaseRequesterKit.{method.__name__} started"),
     ]
 
 
@@ -90,17 +90,17 @@ async def test__base_async_requester__403_and_500__should_print_error_log(
     assert response.status_code == 403
 
     assert caplog.record_tuples == [
-        ("BaseRequesterKit", 20, "http request started"),
+        ("BaseRequesterKit", 20, f"request to BaseRequesterKit.{method.__name__} started"),
         (
             "BaseRequesterKit",
             30,
-            "Response from (http://localhost/hewwo) with status_code 500",
+            f"request to BaseRequesterKit.{method.__name__} failed",
         ),
-        ("BaseRequesterKit", 20, "http request started"),
+        ("BaseRequesterKit", 20, f"request to BaseRequesterKit.{method.__name__} started"),
         (
             "BaseRequesterKit",
             30,
-            "Response from (http://localhost/hewwo) with status_code 403",
+            f"request to BaseRequesterKit.{method.__name__} failed",
         ),
     ]
 

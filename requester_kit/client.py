@@ -302,14 +302,13 @@ class BaseRequesterKit:
         request: Request,
         attempt_number: int = 1,
     ) -> Response:
-        self._log_request(request)
-
         start_time = time.perf_counter()
         metric = None
         error_counter = None
         request_size_metric = None
         response_size_metric = None
         metric_label = self._resolve_metric_label(request)
+        self._log_request(request, metric_label)
         attempt_label = str(attempt_number)
         if self._enable_prometheus_metrics:
             metric = _get_prometheus_histogram(_PROM_REQUEST_DURATION_NAME)
@@ -349,7 +348,7 @@ class BaseRequesterKit:
                 attempt=attempt_label,
             ).observe(len(response.content or b""))
 
-        self._log_response(response, duration, str(request.url))
+        self._log_response(response, duration, str(request.url), metric_label)
 
         if response.status_code >= HTTPStatus.BAD_REQUEST:
             if error_counter is not None:
@@ -417,13 +416,14 @@ class BaseRequesterKit:
             del frame
         return f"{self.__class__.__name__}.{request.method.lower()}"
 
-    def _log_request(self, request: Request) -> None:
+    def _log_request(self, request: Request, request_target: str) -> None:
         self._logger.info(
-            "http request started",
+            f"request to {request_target} started",
             extra={
                 "event_name": "http.request.started",
                 "method": request.method,
                 "url": str(request.url),
+                "request_target": request_target,
             },
         )
 
@@ -432,17 +432,19 @@ class BaseRequesterKit:
         response: Response,
         total_time: float,
         request_url: str,
+        request_target: str,
     ) -> None:
-        msg = f"Response from ({request_url}) with status_code {response.status_code}"
         payload = {
             "event_name": "http.request.finished",
             "method": response.request.method if response.request is not None else None,
             "url": request_url,
             "status_code": response.status_code,
+            "request_target": request_target,
             "total_time_seconds": round(total_time, 3),
         }
 
         if response.status_code < HTTPStatus.BAD_REQUEST:
+            msg = f"request to {request_target} ok"
             self._logger.info(msg, extra=payload)
             return
 
@@ -457,6 +459,7 @@ class BaseRequesterKit:
         except AttributeError:
             payload["response_body"] = "<unavailable>"
 
+        msg = f"request to {request_target} failed"
         self._logger.warning(msg, extra=payload)
 
     def _extract_response_headers(self, response: Response) -> dict[str, str]:
