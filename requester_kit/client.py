@@ -268,7 +268,14 @@ class BaseRequesterKit:
                 is_ok=False,
                 error_msg=str(exc),
             )
-        response = cast("Response", response)
+        if response is None:
+            error_msg = "Request failed without response object"
+            self._logger.error(error_msg)
+            return RequesterKitResponse(
+                status_code=None,
+                is_ok=False,
+                error_msg=error_msg,
+            )
 
         if not response_model:
             return RequesterKitResponse(

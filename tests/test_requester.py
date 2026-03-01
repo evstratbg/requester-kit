@@ -503,6 +503,21 @@ async def test__base_async_requester__exception_during_send__turned_into_500(
     assert response.error_msg == "Such error"
 
 
+async def test__base_async_requester__none_response__handled_without_attribute_error(
+    async_requester: BaseRequesterKit,
+    mocker: MockerFixture,
+):
+    async def mocked_send_request(*args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+    mocker.patch.object(BaseRequesterKit, "_send_request", side_effect=mocked_send_request)
+    response = await async_requester.get("http://localhost/hewwo")
+
+    assert response.status_code is None
+    assert response.is_ok is False
+    assert response.error_msg == "Request failed without response object"
+
+
 async def test__base_async_requester__exception_during_build_request__raised(
     async_requester: BaseRequesterKit,
 ):
