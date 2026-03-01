@@ -468,7 +468,12 @@ class BaseRequesterKit:
         except AttributeError:
             payload["response_body"] = "<unavailable>"
 
-        self._logger.warning("request to %s failed", request_target, extra=payload)
+        self._logger.warning(
+            "request to %s completed with status %s",
+            request_target,
+            response.status_code,
+            extra=payload,
+        )
 
     def _extract_response_headers(self, response: Response) -> dict[str, str]:
         return dict(response.headers.items())

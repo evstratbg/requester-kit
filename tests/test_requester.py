@@ -94,13 +94,13 @@ async def test__base_async_requester__403_and_500__should_print_error_log(
         (
             "BaseRequesterKit",
             30,
-            f"request to BaseRequesterKit.{method.__name__} failed",
+            f"request to BaseRequesterKit.{method.__name__} completed with status 500",
         ),
         ("BaseRequesterKit", 20, f"request to BaseRequesterKit.{method.__name__} started"),
         (
             "BaseRequesterKit",
             30,
-            f"request to BaseRequesterKit.{method.__name__} failed",
+            f"request to BaseRequesterKit.{method.__name__} completed with status 403",
         ),
     ]
 
@@ -796,7 +796,7 @@ def test_log_response_uses_unavailable_body_when_text_is_missing(
     )
 
     assert caplog.record_tuples == [
-        ("BaseRequesterKit", 30, "request to BaseRequesterKit.get failed"),
+        ("BaseRequesterKit", 30, "request to BaseRequesterKit.get completed with status 500"),
     ]
 
 
