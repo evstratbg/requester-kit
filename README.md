@@ -1,6 +1,6 @@
 # requester-kit
 
-Async HTTP connector toolkit with retries, typed responses, and optional Prometheus metrics.
+Async HTTP connector toolkit with retries, typed responses, and decorator-driven Prometheus metrics.
 
 ## Install
 
@@ -21,7 +21,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from requester_kit import BaseRequesterKit, RequesterKitResponse
+from requester_kit import BaseRequesterKit, RequesterKitResponse, prometheus_metrics
 
 
 class UserInfo(BaseModel):
@@ -30,6 +30,7 @@ class UserInfo(BaseModel):
 
 
 class UsersAPI(BaseRequesterKit):
+    @prometheus_metrics()
     async def get_user_info(self, user_id: UUID) -> RequesterKitResponse[UserInfo]:
         return await self.get(f"/users/{user_id}", response_model=UserInfo)
 
@@ -64,7 +65,7 @@ client = BaseRequesterKit(
 
 ## Prometheus metrics
 
-Pass `enable_prometheus_metrics=True` to `BaseRequesterKit` to track HTTP request duration.
+Use `@prometheus_metrics(...)` on external requester methods to enable Prometheus collection for that operation.
 Each HTTP call records a Histogram named `requester_kit_request_duration_seconds` with labels:
 `method` (for example `UsersAPI.get_user_info`), `status_code`, `status_class`, and `attempt`.
 This provides request count and timing via the standard `_count` and `_sum` series.
@@ -74,16 +75,29 @@ Errors are counted in `requester_kit_request_errors_total` with labels:
 
 Payload sizes are recorded in Histograms:
 `requester_kit_request_payload_bytes` and `requester_kit_response_bytes` with the same labels as
-`requester_kit_request_duration_seconds`.
+`requester_kit_request_duration_seconds`. They are optional and are only collected when
+`count_payload_bytes=True` or `count_response_bytes=True` is set on the decorator.
+
+If `name` is omitted, the method label is always `ClassName.method_name`. You can override only the method part:
 
 ```python
-from requester_kit import BaseRequesterKit
+from requester_kit import BaseRequesterKit, prometheus_metrics
 
-client = BaseRequesterKit(
-    base_url="https://api.example.com",
-    enable_prometheus_metrics=True,
-)
+class UsersAPI(BaseRequesterKit):
+    @prometheus_metrics()
+    async def get_user_info(self, user_id: str):
+        return await self.get(f"/users/{user_id}")
+
+    @prometheus_metrics("load_profile", count_response_bytes=True)
+    async def get_profile(self, user_id: str):
+        return await self.get(f"/profiles/{user_id}")
+
+    @prometheus_metrics(count_payload_bytes=True)
+    async def create_user(self, payload: dict):
+        return await self.post("/users", json=payload)
 ```
+
+If a method is not decorated, Prometheus metrics are not recorded for it.
 
 Expose metrics in FastAPI:
 
@@ -112,6 +126,33 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 Why this works: `BaseRequesterKit` writes metrics to the default Prometheus registry, and both `generate_latest()`
 and `prometheus-fastapi-instrumentator` expose that same registry, so your HTTP client metrics appear alongside
 your app metrics on `/metrics`.
+
+## Release
+
+1. Update the package version in `pyproject.toml`.
+2. Add a new entry to `CHANGELOG.md` with the release date and notable changes.
+3. Run checks:
+
+```bash
+uv run pytest -q
+uv run ruff check requester_kit tests
+```
+
+4. Commit the changes and create a git tag matching the version:
+
+```bash
+git tag v0.5.4
+git push origin main --tags
+```
+
+5. Build and publish the package:
+
+```bash
+uv build
+uv publish
+```
+
+If you also keep `uv.lock` in sync for releases, refresh it before tagging with `uv lock`.
 
 ## Testing
 

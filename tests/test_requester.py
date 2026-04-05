@@ -8,8 +8,9 @@ import httpx
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from requester_kit import client as client_module
+from requester_kit import metrics as metrics_module
 from requester_kit.client import BaseRequesterKit
+from requester_kit.metrics import prometheus_metrics
 from requester_kit.types import RetrySettings
 
 if TYPE_CHECKING:
@@ -215,37 +216,31 @@ async def test__base_async_requester__prometheus_metrics__observes_duration(
     metric = mocker.Mock()
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
-    get_metric = mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    get_metric = mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
     counter = mocker.Mock()
     counter.labels.return_value = mocker.Mock()
-    get_counter = mocker.patch("requester_kit.client._get_prometheus_counter", return_value=counter)
-    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    get_counter = mocker.patch("requester_kit.metrics.get_prometheus_counter", return_value=counter)
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
-    mocker.patch(
-        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
-        return_value="UserInfo.get_user_info",
-    )
 
-    requester = BaseRequesterKit(enable_prometheus_metrics=True)
-    await requester.get("http://localhost/hewwo")
+    class UserInfo(BaseRequesterKit):
+        @prometheus_metrics()
+        async def get_user_info(self):
+            return await self.get("http://localhost/hewwo")
+
+    requester = UserInfo()
+    await requester.get_user_info()
 
     get_metric.assert_called_once_with("requester_kit_request_duration_seconds")
-    get_counter.assert_called_once_with("requester_kit_request_errors_total")
+    get_counter.assert_not_called()
     metric.labels.assert_any_call(
         method="UserInfo.get_user_info",
         status_code="200",
         status_class="2xx",
         attempt="1",
     )
-    metric.labels.assert_any_call(
-        method="UserInfo.get_user_info",
-        status_code="request",
-        status_class="request",
-        attempt="1",
-    )
     metric_child.observe.assert_any_call(1.0)
     counter.labels.assert_not_called()
-    metric_child.observe.assert_any_call(2)
+    metric_child.observe.assert_called_once_with(1.0)
 
 
 async def test__base_async_requester__prometheus_metrics__label_from_subclass_method(
@@ -256,16 +251,15 @@ async def test__base_async_requester__prometheus_metrics__label_from_subclass_me
     metric = mocker.Mock()
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
-    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
-    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
-    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
 
     class UserInfo(BaseRequesterKit):
+        @prometheus_metrics()
         async def get_user_info(self):
             return await self.get("http://localhost/hewwo")
 
-    requester = UserInfo(enable_prometheus_metrics=True)
+    requester = UserInfo()
     await requester.get_user_info()
 
     metric.labels.assert_any_call(
@@ -279,9 +273,9 @@ async def test__base_async_requester__prometheus_metrics__label_from_subclass_me
 
 def test__get_prometheus_histogram__caches_and_adds_label():
     pytest.importorskip("prometheus_client")
-    client_module._PROM_HISTOGRAMS.clear()
-    histogram = client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_test")
-    cached = client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_test")
+    metrics_module._PROM_HISTOGRAMS.clear()
+    histogram = metrics_module.get_prometheus_histogram("requester_kit_request_duration_seconds_test")
+    cached = metrics_module.get_prometheus_histogram("requester_kit_request_duration_seconds_test")
 
     assert histogram is cached
     assert "method" in histogram._labelnames
@@ -291,17 +285,17 @@ def test__get_prometheus_histogram__caches_and_adds_label():
 
 
 def test__get_prometheus_histogram__missing_dependency_raises(mocker: MockerFixture):
-    mocker.patch("requester_kit.client.import_module", side_effect=ImportError("no prometheus"))
+    mocker.patch("requester_kit.metrics.import_module", side_effect=ImportError("no prometheus"))
 
-    with pytest.raises(RuntimeError, match="prometheus_client is required"):
-        client_module._get_prometheus_histogram("requester_kit_request_duration_seconds_missing")
+    with pytest.raises(RuntimeError, match="prometheus_client is required when using @prometheus_metrics"):
+        metrics_module.get_prometheus_histogram("requester_kit_request_duration_seconds_missing")
 
 
 def test__get_prometheus_counter__caches_and_adds_label():
     pytest.importorskip("prometheus_client")
-    client_module._PROM_COUNTERS.clear()
-    counter = client_module._get_prometheus_counter("requester_kit_request_errors_total_test")
-    cached = client_module._get_prometheus_counter("requester_kit_request_errors_total_test")
+    metrics_module._PROM_COUNTERS.clear()
+    counter = metrics_module.get_prometheus_counter("requester_kit_request_errors_total_test")
+    cached = metrics_module.get_prometheus_counter("requester_kit_request_errors_total_test")
 
     assert counter is cached
     assert "method" in counter._labelnames
@@ -312,21 +306,21 @@ def test__get_prometheus_counter__caches_and_adds_label():
 
 def test__get_prometheus_size_histogram__reuses_base_histogram(mocker: MockerFixture):
     base = mocker.Mock()
-    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=base)
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=base)
 
-    result = client_module._get_prometheus_size_histogram("requester_kit_request_payload_bytes")
+    result = metrics_module.get_prometheus_size_histogram("requester_kit_request_payload_bytes")
 
     assert result is base
 
 
 def test__get_prometheus_counter__missing_dependency_raises(mocker: MockerFixture):
-    mocker.patch("requester_kit.client.import_module", side_effect=ImportError("no prometheus"))
+    mocker.patch("requester_kit.metrics.import_module", side_effect=ImportError("no prometheus"))
 
-    with pytest.raises(RuntimeError, match="prometheus_client is required"):
-        client_module._get_prometheus_counter("requester_kit_request_errors_total_missing")
+    with pytest.raises(RuntimeError, match="prometheus_client is required when using @prometheus_metrics"):
+        metrics_module.get_prometheus_counter("requester_kit_request_errors_total_missing")
 
 
-async def test__base_async_requester__prometheus_metrics__label_fallback_when_no_frame(
+async def test__base_async_requester__prometheus_metrics__disabled_without_decorator(
     mock_httpx: MockHTTPX,
     mocker: MockerFixture,
 ):
@@ -334,47 +328,14 @@ async def test__base_async_requester__prometheus_metrics__label_fallback_when_no
     metric = mocker.Mock()
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
-    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
-    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
-    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
-    mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
-    mocker.patch("requester_kit.client.inspect.currentframe", return_value=None)
-
-    requester = BaseRequesterKit(enable_prometheus_metrics=True)
-    await requester.get("http://localhost/hewwo")
-
-    metric.labels.assert_any_call(
-        method="BaseRequesterKit.get",
-        status_code="200",
-        status_class="2xx",
-        attempt="1",
-    )
-    metric_child.observe.assert_any_call(1.0)
-
-
-async def test__base_async_requester__prometheus_metrics__label_fallback_when_no_external_method(
-    mock_httpx: MockHTTPX,
-    mocker: MockerFixture,
-):
-    mock_httpx(200)
-    metric = mocker.Mock()
-    metric_child = mocker.Mock()
-    metric.labels.return_value = metric_child
-    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
-    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
-    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
 
-    requester = BaseRequesterKit(enable_prometheus_metrics=True)
+    requester = BaseRequesterKit()
     await requester.get("http://localhost/hewwo")
 
-    metric.labels.assert_any_call(
-        method="BaseRequesterKit.get",
-        status_code="200",
-        status_class="2xx",
-        attempt="1",
-    )
-    metric_child.observe.assert_any_call(1.0)
+    metric.labels.assert_not_called()
+    metric_child.observe.assert_not_called()
 
 
 async def test__base_async_requester__prometheus_metrics__observes_on_http_error(
@@ -385,32 +346,32 @@ async def test__base_async_requester__prometheus_metrics__observes_on_http_error
     metric = mocker.Mock()
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
-    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
     counter = mocker.Mock()
     counter_child = mocker.Mock()
     counter.labels.return_value = counter_child
-    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=counter)
-    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    mocker.patch("requester_kit.metrics.get_prometheus_counter", return_value=counter)
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
-    mocker.patch(
-        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
-        return_value="BaseRequesterKit.get",
-    )
     mocker.patch.object(httpx.AsyncClient, "send", side_effect=httpx.HTTPError("Such error"))
 
-    requester = BaseRequesterKit(enable_prometheus_metrics=True)
-    response = await requester.get("http://localhost/hewwo")
+    class UserInfo(BaseRequesterKit):
+        @prometheus_metrics()
+        async def get_user_info(self):
+            return await self.get("http://localhost/hewwo")
+
+    requester = UserInfo()
+    response = await requester.get_user_info()
 
     assert response.status_code is None
     metric.labels.assert_any_call(
-        method="BaseRequesterKit.get",
+        method="UserInfo.get_user_info",
         status_code="exception",
         status_class="error",
         attempt="1",
     )
     metric_child.observe.assert_any_call(1.0)
     counter.labels.assert_called_once_with(
-        method="BaseRequesterKit.get",
+        method="UserInfo.get_user_info",
         status_code="exception",
         error_type="http_error",
         attempt="1",
@@ -418,7 +379,7 @@ async def test__base_async_requester__prometheus_metrics__observes_on_http_error
     counter_child.inc.assert_called_once_with()
 
 
-async def test__base_async_requester__prometheus_metrics__response_size_observed(
+async def test__base_async_requester__prometheus_metrics__response_size_observed_when_enabled_in_decorator(
     mock_httpx: MockHTTPX,
     mocker: MockerFixture,
 ):
@@ -429,17 +390,17 @@ async def test__base_async_requester__prometheus_metrics__response_size_observed
     size_metric = mocker.Mock()
     size_metric_child = mocker.Mock()
     size_metric.labels.return_value = size_metric_child
-    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
-    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=size_metric)
-    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=mocker.Mock())
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.metrics.get_prometheus_size_histogram", return_value=size_metric)
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
-    mocker.patch(
-        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
-        return_value="BaseRequesterKit.get",
-    )
 
-    requester = BaseRequesterKit(enable_prometheus_metrics=True)
-    await requester.get("http://localhost/hewwo")
+    class UserInfo(BaseRequesterKit):
+        @prometheus_metrics(count_response_bytes=True)
+        async def get_user_info(self):
+            return await self.get("http://localhost/hewwo")
+
+    requester = UserInfo()
+    await requester.get_user_info()
 
     size_metric_child.observe.assert_any_call(2)
 
@@ -448,17 +409,12 @@ async def test__base_async_requester__prometheus_metrics__attempt_label_on_retry
     metric = mocker.Mock()
     metric_child = mocker.Mock()
     metric.labels.return_value = metric_child
-    mocker.patch("requester_kit.client._get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
     counter = mocker.Mock()
     counter_child = mocker.Mock()
     counter.labels.return_value = counter_child
-    mocker.patch("requester_kit.client._get_prometheus_counter", return_value=counter)
-    mocker.patch("requester_kit.client._get_prometheus_size_histogram", return_value=metric)
+    mocker.patch("requester_kit.metrics.get_prometheus_counter", return_value=counter)
     mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0, 2.0, 3.0])
-    mocker.patch(
-        "requester_kit.client.BaseRequesterKit._resolve_metric_label",
-        return_value="BaseRequesterKit.get",
-    )
 
     error_response = httpx.Response(
         status_code=500,
@@ -474,23 +430,113 @@ async def test__base_async_requester__prometheus_metrics__attempt_label_on_retry
     )
     mocker.patch.object(httpx.AsyncClient, "send", side_effect=[error_response, ok_response])
 
-    requester = BaseRequesterKit(
-        retryer_settings=RetrySettings(retries=1, delay=0, increment=0),
-        enable_prometheus_metrics=True,
-    )
-    response = await requester.get("http://localhost/hewwo")
+    class UserInfo(BaseRequesterKit):
+        @prometheus_metrics()
+        async def get_user_info(self):
+            return await self.get("http://localhost/hewwo")
+
+    requester = UserInfo(retryer_settings=RetrySettings(retries=1, delay=0, increment=0))
+    response = await requester.get_user_info()
 
     assert response.status_code == 200
     attempt_labels = [call.kwargs["attempt"] for call in metric.labels.call_args_list]
     assert "1" in attempt_labels
     assert "2" in attempt_labels
     counter.labels.assert_called_once_with(
-        method="BaseRequesterKit.get",
+        method="UserInfo.get_user_info",
         status_code="500",
         error_type="http_status",
         attempt="1",
     )
     counter_child.inc.assert_called_once_with()
+
+
+async def test__base_async_requester__prometheus_metrics__custom_label_from_decorator(
+    mock_httpx: MockHTTPX,
+    mocker: MockerFixture,
+):
+    mock_httpx(200)
+    metric = mocker.Mock()
+    metric_child = mocker.Mock()
+    metric.labels.return_value = metric_child
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
+
+    class UserInfo(BaseRequesterKit):
+        @prometheus_metrics("load_profile")
+        async def get_user_info(self):
+            return await self.get("http://localhost/hewwo")
+
+    requester = UserInfo()
+    await requester.get_user_info()
+
+    metric.labels.assert_any_call(
+        method="UserInfo.load_profile",
+        status_code="200",
+        status_class="2xx",
+        attempt="1",
+    )
+    metric_child.observe.assert_any_call(1.0)
+
+
+async def test__base_async_requester__prometheus_metrics__custom_label_includes_class_name(
+    mock_httpx: MockHTTPX,
+    mocker: MockerFixture,
+):
+    mock_httpx(200)
+    metric = mocker.Mock()
+    metric_child = mocker.Mock()
+    metric.labels.return_value = metric_child
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
+
+    class UserInfo(BaseRequesterKit):
+        @prometheus_metrics("users.fetch")
+        async def get_user_info(self):
+            return await self.get("http://localhost/hewwo")
+
+    requester = UserInfo()
+    await requester.get_user_info()
+
+    metric.labels.assert_any_call(
+        method="UserInfo.users.fetch",
+        status_code="200",
+        status_class="2xx",
+        attempt="1",
+    )
+    metric_child.observe.assert_any_call(1.0)
+
+
+async def test__base_async_requester__prometheus_metrics__payload_size_observed_when_enabled_in_decorator(
+    mock_httpx: MockHTTPX,
+    mocker: MockerFixture,
+):
+    mock_httpx(200)
+    metric = mocker.Mock()
+    metric_child = mocker.Mock()
+    metric.labels.return_value = metric_child
+    size_metric = mocker.Mock()
+    size_metric_child = mocker.Mock()
+    size_metric.labels.return_value = size_metric_child
+    mocker.patch("requester_kit.metrics.get_prometheus_histogram", return_value=metric)
+    mocker.patch("requester_kit.metrics.get_prometheus_size_histogram", return_value=size_metric)
+    mocker.patch("requester_kit.client.time.perf_counter", side_effect=[0.0, 1.0])
+
+    class UserInfo(BaseRequesterKit):
+        @prometheus_metrics(count_payload_bytes=True)
+        async def create_user(self):
+            return await self.post("http://localhost/hewwo", json={"hello": "world"})
+
+    requester = UserInfo()
+    await requester.create_user()
+
+    size_metric.labels.assert_called_once_with(
+        method="UserInfo.create_user",
+        status_code="request",
+        status_class="request",
+        attempt="1",
+    )
+    size_metric_child.observe.assert_called_once_with(17)
 
 
 async def test__base_async_requester__exception_during_send__turned_into_500(

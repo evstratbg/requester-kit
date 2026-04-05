@@ -1,65 +1,27 @@
 from __future__ import annotations
 
-import inspect
 import logging
 import time
 from http import HTTPStatus
 from http.cookies import SimpleCookie
-from importlib import import_module
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 from httpx import AsyncClient, AsyncHTTPTransport, HTTPError, Request, Response
 from pydantic import ValidationError
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_incrementing
 
+from requester_kit.metrics import (
+    get_prometheus_metrics_settings,
+    record_prometheus_http_error,
+    record_prometheus_http_status_error,
+    record_prometheus_request_start,
+    record_prometheus_response,
+)
 from requester_kit.types import LoggerSettings, RequesterKitResponse, RetrySettings, T_co
 
 if TYPE_CHECKING:
-    from prometheus_client import Counter, Histogram
-
     from requester_kit import types
-
-_PROM_HISTOGRAMS: dict[str, Histogram] = {}
-_PROM_COUNTERS: dict[str, Counter] = {}
-_PROM_REQUEST_DURATION_NAME = "requester_kit_request_duration_seconds"
-_PROM_REQUEST_ERRORS_NAME = "requester_kit_request_errors_total"
-_PROM_REQUEST_SIZE_NAME = "requester_kit_request_payload_bytes"
-_PROM_RESPONSE_SIZE_NAME = "requester_kit_response_bytes"
-
-
-def _get_prometheus_histogram(name: str) -> Histogram:
-    try:
-        histogram = import_module("prometheus_client").Histogram
-    except ImportError as exc:
-        raise RuntimeError("prometheus_client is required when enable_prometheus_metrics=True") from exc
-
-    if name not in _PROM_HISTOGRAMS:
-        _PROM_HISTOGRAMS[name] = histogram(
-            name,
-            "HTTP request duration in seconds",
-            labelnames=("method", "status_code", "status_class", "attempt"),
-        )
-    return _PROM_HISTOGRAMS[name]
-
-
-def _get_prometheus_counter(name: str) -> Counter:
-    try:
-        counter = import_module("prometheus_client").Counter
-    except ImportError as exc:
-        raise RuntimeError("prometheus_client is required when enable_prometheus_metrics=True") from exc
-
-    if name not in _PROM_COUNTERS:
-        _PROM_COUNTERS[name] = counter(
-            name,
-            "Total number of HTTP request errors",
-            labelnames=("method", "status_code", "error_type", "attempt"),
-        )
-    return _PROM_COUNTERS[name]
-
-
-def _get_prometheus_size_histogram(name: str) -> Histogram:
-    return _get_prometheus_histogram(name)
 
 
 class RequesterKitRequestError(Exception):
@@ -81,14 +43,11 @@ class BaseRequesterKit:
         retryer_settings: Optional[RetrySettings] = None,
         logger_settings: Optional[LoggerSettings] = None,
         logger: Any | None = None,
-        *,
-        enable_prometheus_metrics: bool = False,
     ) -> None:
         self._retryer_settings = retryer_settings or RetrySettings()
         self._logger_settings = logger_settings or LoggerSettings()
 
         self._logger = logger or logging.getLogger(type(self).__name__)
-        self._enable_prometheus_metrics = enable_prometheus_metrics
         self._verify = verify
         transport_verify: types.RequestVerify = True if verify is None else verify
         self._client = AsyncClient(
@@ -312,61 +271,39 @@ class BaseRequesterKit:
         attempt_number: int = 1,
     ) -> Response:
         start_time = time.perf_counter()
-        metric = None
-        error_counter = None
-        request_size_metric = None
-        response_size_metric = None
-        metric_label = self._resolve_metric_label(request)
+        metric_label = self._resolve_metric_target(request)
         self._log_request(request, metric_label)
         attempt_label = str(attempt_number)
-        if self._enable_prometheus_metrics:
-            metric = _get_prometheus_histogram(_PROM_REQUEST_DURATION_NAME)
-            error_counter = _get_prometheus_counter(_PROM_REQUEST_ERRORS_NAME)
-            request_size_metric = _get_prometheus_size_histogram(_PROM_REQUEST_SIZE_NAME)
-            response_size_metric = _get_prometheus_size_histogram(_PROM_RESPONSE_SIZE_NAME)
-            request_size_metric.labels(
-                method=metric_label,
-                status_code="request",
-                status_class="request",
-                attempt=attempt_label,
-            ).observe(len(request.content or b""))
+        metrics_settings = record_prometheus_request_start(
+            attempt=attempt_label,
+            request_content=request.content if hasattr(request, "_content") else b"",
+        )
 
         response = await self._send_http_request(
             client=self._client,
             request=request,
             start_time=start_time,
-            metric=metric,
-            metric_label=metric_label,
             attempt_label=attempt_label,
-            error_counter=error_counter,
         )
 
         duration = time.perf_counter() - start_time
-        if metric is not None:
-            metric.labels(
-                method=metric_label,
-                status_code=str(response.status_code),
-                status_class=f"{response.status_code // 100}xx",
+        if metrics_settings is not None:
+            record_prometheus_response(
+                settings=metrics_settings,
+                response=response,
+                duration=duration,
                 attempt=attempt_label,
-            ).observe(duration)
-            response_size_metric = cast("Histogram", response_size_metric)
-            response_size_metric.labels(
-                method=metric_label,
-                status_code=str(response.status_code),
-                status_class=f"{response.status_code // 100}xx",
-                attempt=attempt_label,
-            ).observe(len(response.content or b""))
+            )
 
         self._log_response(response, duration, str(request.url), metric_label)
 
         if response.status_code >= HTTPStatus.BAD_REQUEST:
-            if error_counter is not None:
-                error_counter.labels(
-                    method=metric_label,
-                    status_code=str(response.status_code),
-                    error_type="http_status",
+            if metrics_settings is not None:
+                record_prometheus_http_status_error(
+                    settings=metrics_settings,
+                    status_code=response.status_code,
                     attempt=attempt_label,
-                ).inc()
+                )
             raise RequesterKitRequestError("Bad response", response.status_code)
 
         return response
@@ -376,10 +313,7 @@ class BaseRequesterKit:
         client: AsyncClient,
         request: Request,
         start_time: float,
-        metric: Optional[Histogram],
-        metric_label: str,
         attempt_label: str,
-        error_counter: Optional[Counter],
     ) -> Response:
         try:
             return await client.send(
@@ -388,41 +322,19 @@ class BaseRequesterKit:
             )
         except HTTPError as exc:
             duration = time.perf_counter() - start_time
-            if metric is not None:
-                metric.labels(
-                    method=metric_label,
-                    status_code="exception",
-                    status_class="error",
+            metrics_settings = get_prometheus_metrics_settings()
+            if metrics_settings is not None:
+                record_prometheus_http_error(
+                    settings=metrics_settings,
+                    duration=duration,
                     attempt=attempt_label,
-                ).observe(duration)
-            if error_counter is not None:
-                error_counter.labels(
-                    method=metric_label,
-                    status_code="exception",
-                    error_type="http_error",
-                    attempt=attempt_label,
-                ).inc()
+                )
             raise RequesterKitRequestError(str(exc)) from exc
 
-    def _resolve_metric_label(self, request: Request) -> str:
-        frame = inspect.currentframe()
-        if frame is None:
-            return f"{self.__class__.__name__}.{request.method.lower()}"
-        try:
-            frame = frame.f_back
-            while frame:
-                frame_self = frame.f_locals.get("self")
-                if isinstance(frame_self, BaseRequesterKit):
-                    method_name = frame.f_code.co_name
-                    base_method = getattr(BaseRequesterKit, method_name, None)
-                    base_code = getattr(base_method, "__code__", None) if base_method else None
-                    if base_code is frame.f_code:
-                        frame = frame.f_back
-                        continue
-                    return f"{type(frame_self).__name__}.{method_name}"
-                frame = frame.f_back
-        finally:
-            del frame
+    def _resolve_metric_target(self, request: Request) -> str:
+        metrics_settings = get_prometheus_metrics_settings()
+        if metrics_settings is not None:
+            return metrics_settings.target
         return f"{self.__class__.__name__}.{request.method.lower()}"
 
     def _log_request(self, request: Request, request_target: str) -> None:
